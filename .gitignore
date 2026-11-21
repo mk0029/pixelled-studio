@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# Next.js / static export output
+/.next/
+/out/
+/build
+/.vercel/
+
+# generated types and TypeScript cache
+/next-env.d.ts
+*.tsbuildinfo
+
+# environment files
+.env*
+!.env.example
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local files
+.DS_Store
+*.pem
