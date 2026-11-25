@@ -16,17 +16,3 @@ export async function sanityFetch<T = any>(query: string): Promise<T> {
   return json.result as T;
 }
 
-export function sanityFileUrl(ref: string): string {
-  // file asset ref format: file-<id>-<ext>
-  const parts = ref.replace("file-", "").split("-");
-  const id = parts.slice(0, -1).join("-");
-  const ext = parts[parts.length - 1];
-  return `https://cdn.sanity.io/files/${PROJECT_ID}/${DATASET}/${id}.${ext}`;
-}
-
-export function sanityImageUrl(ref: string): string {
-  const parts = ref.replace("image-", "").split("-");
-  const id = parts.slice(0, -1).join("-");
-  const dims = parts[parts.length - 1];
-  return `https://cdn.sanity.io/images/${PROJECT_ID}/${DATASET}/${id}-${dims}`;
-}

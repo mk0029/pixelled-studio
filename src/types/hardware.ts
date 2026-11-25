@@ -1,30 +1,3 @@
-export type ControllerFamily = "T-Series · SD Offline" | "K-Series · Advanced" | "H-Series";
-
-export interface ControllerSpec {
-  id: string;
-  family: ControllerFamily;
-  ports: number;
-  pixelsPerPort: number;
-  maxPixels: number;
-  link: string;
-  fps: number;
-  detail: string;
-}
-
-import { CONTROLLERS } from "@/config/hardware/registry";
-export { CONTROLLERS };
-
-export interface ChipsetSpec {
-  id: string;
-  name: string;
-  channels: 3 | 4;
-  protocol: string;
-  detail: string;
-}
-
-import { CHIPSETS } from "@/config/hardware/registry";
-export { CHIPSETS };
-
 export const COLOR_ORDERS = ["RGB", "RBG", "GRB", "GBR", "BRG", "BGR"] as const;
 export type ColorOrder = (typeof COLOR_ORDERS)[number];
 
@@ -34,10 +7,10 @@ export type StartCorner = (typeof START_CORNERS)[number];
 export const ROUTINGS = ["vertical-snake", "vertical-progressive", "horizontal-snake", "horizontal-progressive"] as const;
 export type RoutingPattern = (typeof ROUTINGS)[number];
 
+/** Grid geometry and wiring only — v2 does not encode controller-specific profiles. */
 export interface HardwareConfig {
-  controllerId: string;
-  chipsetId: string;
   colorOrder: ColorOrder;
+  channels: 3 | 4;
   cols: number;
   rows: number;
   startCorner: StartCorner;
@@ -72,9 +45,8 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
 ];
 
 export const DEFAULT_HARDWARE: HardwareConfig = {
-  controllerId: "T-8000AC",
-  chipsetId: "WS2812B",
   colorOrder: "GRB",
+  channels: 3,
   cols: 30,
   rows: 20,
   startCorner: "top-left",
@@ -86,11 +58,3 @@ export const DEFAULT_HARDWARE: HardwareConfig = {
   showIndices: false,
   showPitch: true,
 };
-
-export function getController(id: string): ControllerSpec {
-  return CONTROLLERS.find((c) => c.id === id) ?? CONTROLLERS[3];
-}
-
-export function getChipset(id: string): ChipsetSpec {
-  return CHIPSETS.find((c) => c.id === id) ?? CHIPSETS[0];
-}

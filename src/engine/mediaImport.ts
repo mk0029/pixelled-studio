@@ -5,7 +5,7 @@ export interface ImportedMedia {
   src: string;
   frames: number;
   fps: number;
-  type: "image" | "video" | "gif" | "webm" | "swf" | "sfx";
+  type: "image" | "video" | "gif" | "webm" | "avi" | "swf" | "sfx";
   srcW?: number;
   srcH?: number;
   cropX?: number;
@@ -30,7 +30,7 @@ function canvas2d(w: number, h: number): { canvas: HTMLCanvasElement; ctx: Canva
   return { canvas, ctx };
 }
 
-function packFrames(frames: ImageData[], cols: number, rows: number): string {
+export function packFrames(frames: ImageData[], cols: number, rows: number): string {
   const { canvas, ctx } = canvas2d(cols * frames.length, rows);
   frames.forEach((frame, i) => ctx.putImageData(frame, i * cols, 0));
   return canvas.toDataURL("image/png");

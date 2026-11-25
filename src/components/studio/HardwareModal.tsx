@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  COLOR_ORDERS, CHIPSETS, CONTROLLERS, DEFAULT_HARDWARE, LAYOUT_PRESETS, ROUTINGS, START_CORNERS,
-  getController, type ColorOrder, type ControllerFamily, type HardwareConfig, type RoutingPattern, type StartCorner,
+  COLOR_ORDERS, DEFAULT_HARDWARE, LAYOUT_PRESETS, ROUTINGS, START_CORNERS,
+  type ColorOrder, type HardwareConfig, type RoutingPattern, type StartCorner,
 } from "@/types/hardware";
 import { buildWiringMap, PORT_COLORS } from "@/engine/wiringMapper";
 import { Icon } from "./icons";
@@ -16,10 +16,6 @@ interface Props {
   onClose: () => void;
   onApply: (name: string, hardware: HardwareConfig) => void;
 }
-
-const FAMILIES: ControllerFamily[] = [
-  "T-Series · SD Offline", "K-Series · Advanced", "H-Series",
-];
 
 const ROUTING_LABEL: Record<RoutingPattern, { name: string; glyph: string; detail: string }> = {
   "vertical-snake": { name: "Vertical S-Snake", glyph: "↓↑", detail: "Zig-zag down each drop — standard toran" },
@@ -36,23 +32,19 @@ const CORNER_LABEL: Record<StartCorner, string> = {
 export default function HardwareModal(p: Props) {
   const [draft, setDraft] = useState<HardwareConfig>({ ...DEFAULT_HARDWARE, ...p.hardware });
   const [draftName, setDraftName] = useState(p.name);
-  const [family, setFamily] = useState<ControllerFamily>(getController(p.hardware.controllerId).family);
 
   useEffect(() => {
     if (!p.open) return;
     setDraft({ ...DEFAULT_HARDWARE, ...p.hardware });
     setDraftName(p.name);
-    setFamily(getController(p.hardware.controllerId).family);
   }, [p.open, p.hardware, p.name]);
 
-  const ctl = getController(draft.controllerId);
   const map = useMemo(() => buildWiringMap(draft), [draft]);
+  const busiestPort = Math.max(1, ...map.ports.map((port) => port.pixels));
   const set = <K extends keyof HardwareConfig>(key: K, value: HardwareConfig[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
   if (!p.open) return null;
-
-  const familyControllers = CONTROLLERS.filter((c) => c.family === family);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
@@ -61,7 +53,7 @@ export default function HardwareModal(p: Props) {
           <Icon name="cpu" size={17} />
           <div>
             <div className="text-[13px] font-bold text-zinc-100">{p.isNew ? "New Project & Hardware Setup" : "Hardware & Wiring Configurator"}</div>
-            <div className="text-[10px] text-zinc-500">PixleLED Studio · by Jambh Electricals · Controller limits · IC protocol · physical pixel routing</div>
+            <div className="text-[10px] text-zinc-500">PixleLED Studio · by Jambh Electricals · grid dimensions · color order · physical pixel routing</div>
           </div>
           <button className="btn btn-icon ml-auto" onClick={p.onClose} title="Close"><Icon name="x" /></button>
         </div>
@@ -72,66 +64,25 @@ export default function HardwareModal(p: Props) {
             <input className="field max-w-sm" value={draftName} onChange={(e) => setDraftName(e.target.value)} />
           </section>
 
-          <section className="mb-5">
-            <div className="label mb-2">1 · Controller hardware</div>
-            <div className="mb-2 flex gap-1">
-              {FAMILIES.map((f) => (
-                <button key={f} className={`chip ${family === f ? "chip-active" : ""}`} onClick={() => {
-                  setFamily(f);
-                  set("controllerId", CONTROLLERS.find((c) => c.family === f)!.id);
-                }}>{f.split(" · ")[0]}</button>
-              ))}
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {familyControllers.map((c) => {
-                const active = draft.controllerId === c.id;
-                return (
-                  <button key={c.id} onClick={() => { set("controllerId", c.id); set("activePorts", c.ports); }}
-                    className={`rounded-lg border p-2.5 text-left transition ${active ? "border-teal-400 bg-teal-500/[.08]" : "border-zinc-800 bg-zinc-900/60 hover:border-zinc-600"}`}>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[12px] font-bold ${active ? "text-teal-300" : "text-zinc-200"}`}>{c.id}</span>
-                      <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] text-zinc-400">{c.link}</span>
-                    </div>
-                    <div className="mt-1 flex gap-2 text-[10px] text-zinc-500">
-                      <span>{c.ports} port{c.ports > 1 ? "s" : ""}</span>
-                      <span>·</span><span>{c.pixelsPerPort} px/port</span>
-                      <span>·</span><span>max {c.maxPixels.toLocaleString()}</span>
-                    </div>
-                    <div className="mt-1 text-[10px] leading-snug text-zinc-600">{c.detail}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
           <div className="grid gap-5 lg:grid-cols-2">
             <section>
-              <div className="label mb-2">2 · Driver IC & color order</div>
-              <div className="mb-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                {CHIPSETS.map((chip) => (
-                  <button key={chip.id} className={`chip text-left ${draft.chipsetId === chip.id ? "chip-active" : ""}`}
-                    onClick={() => set("chipsetId", chip.id)} title={chip.detail}>
-                    <span className="block font-semibold">{chip.name}</span>
-                    <span className="block text-[9px] text-zinc-600">{chip.protocol}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="label mb-1.5 mt-3">Channel byte order (export serialization)</div>
+              <div className="label mb-2">1 · Color order & ports</div>
+              <div className="label mb-1.5">Channel byte order (export serialization)</div>
               <div className="flex flex-wrap gap-1.5">
                 {COLOR_ORDERS.map((o: ColorOrder) => (
                   <button key={o} className={`chip font-mono ${draft.colorOrder === o ? "chip-active" : ""}`} onClick={() => set("colorOrder", o)}>{o}</button>
                 ))}
               </div>
-              <div className="label mb-1.5 mt-3">Active ports · {draft.activePorts} / {ctl.ports}</div>
+              <div className="label mb-1.5 mt-3">Active ports · {draft.activePorts}</div>
               <div className="flex items-center gap-3">
-                <input type="range" min="1" max={ctl.ports} value={draft.activePorts}
+                <input type="range" min="1" max="16" value={draft.activePorts}
                   onChange={(e) => set("activePorts", +e.target.value)} className="flex-1" />
                 <span className="w-20 text-right font-mono text-[11px] text-zinc-300">{draft.activePorts}</span>
               </div>
             </section>
 
             <section>
-              <div className="label mb-2">3 · Toran / matrix dimensions</div>
+              <div className="label mb-2">2 · Toran / matrix dimensions</div>
               <div className="mb-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                 {LAYOUT_PRESETS.map((preset) => {
                   const active = draft.cols === preset.cols && draft.rows === preset.rows;
@@ -154,13 +105,13 @@ export default function HardwareModal(p: Props) {
               </div>
               <div className="mt-2 rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-2 font-mono text-[11px] text-zinc-400">
                 {draft.cols} × {draft.rows} = <span className="text-teal-300">{map.totalPixels.toLocaleString()} px</span>
-                {" · "}{Math.max(...map.ports.map((port) => port.pixels))} px / busiest port
+                {" · "}{busiestPort} px / busiest port
               </div>
             </section>
           </div>
 
           <section className="mt-5">
-            <div className="label mb-2">4 · Wiring topology</div>
+            <div className="label mb-2">3 · Wiring topology</div>
             <div className="grid gap-5 lg:grid-cols-2">
               <div>
                 <div className="label mb-1.5">Start corner (data entry)</div>
@@ -186,7 +137,7 @@ export default function HardwareModal(p: Props) {
           </section>
 
           <section className="mt-5">
-            <div className="label mb-2">5 · Port chain / Z connection</div>
+            <div className="label mb-2">4 · Port chain / Z connection</div>
             <div className="grid gap-2 sm:grid-cols-2">
               <button className={`rounded-lg border p-2.5 text-left ${draft.portChain === "z" ? "border-amber-400 bg-amber-400/[.08]" : "border-zinc-800 bg-zinc-900/60 hover:border-zinc-600"}`}
                 onClick={() => set("portChain", "z")}>
@@ -217,12 +168,11 @@ export default function HardwareModal(p: Props) {
           <section className="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="label">Live port allocation</span>
-              <span className="text-[10px] text-zinc-500">{ctl.id} · {ctl.pixelsPerPort} px/port limit</span>
+              <span className="text-[10px] text-zinc-500">{map.ports.length} port{map.ports.length === 1 ? "" : "s"} · {busiestPort} px busiest</span>
             </div>
             <div className="space-y-1.5">
               {map.ports.map((port) => {
-                const pct = Math.min(100, (port.pixels / ctl.pixelsPerPort) * 100);
-                const over = port.pixels > ctl.pixelsPerPort;
+                const pct = (port.pixels / busiestPort) * 100;
                 return (
                   <div key={port.port} className="flex items-center gap-2">
                     <span className="flex w-11 items-center gap-1 font-mono text-[10px]" style={{ color: PORT_COLORS[(port.port - 1) % 8] }}>
@@ -230,9 +180,9 @@ export default function HardwareModal(p: Props) {
                     </span>
                     <span className="w-28 text-[10px] text-zinc-500">{port.axis === "column" ? "Drops" : "Rows"} {port.from + 1}–{port.to + 1}</span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
-                      <div className={`h-full rounded-full ${over ? "bg-red-500" : "bg-teal-400"}`} style={{ width: `${pct}%` }} />
+                      <div className="h-full rounded-full bg-teal-400" style={{ width: `${pct}%` }} />
                     </div>
-                    <span className={`w-20 text-right font-mono text-[10px] ${over ? "text-red-400" : "text-zinc-400"}`}>{port.pixels} px</span>
+                    <span className="w-20 text-right font-mono text-[10px] text-zinc-400">{port.pixels} px</span>
                   </div>
                 );
               })}

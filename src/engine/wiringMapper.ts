@@ -1,4 +1,4 @@
-import { getController, type HardwareConfig } from "@/types/hardware";
+import type { HardwareConfig } from "@/types/hardware";
 import { buildLayout } from "@/engine/layouts";
 
 export interface WiredPixel {
@@ -42,10 +42,9 @@ const seq = (n: number) => Array.from({ length: n }, (_, i) => i);
  * This is the single source of truth shared by the canvas overlay and export.
  */
 export function buildWiringMap(hw: HardwareConfig): WiringMap {
-  const controller = getController(hw.controllerId);
   let cols = Math.max(1, Math.round(hw.cols));
   let rows = Math.max(1, Math.round(hw.rows));
-  const activePorts = Math.max(1, Math.min(controller.ports, Math.round(hw.activePorts)));
+  const activePorts = Math.max(1, Math.round(hw.activePorts));
   const layoutType = hw.layoutType ?? "matrix";
   const fromTop = hw.startCorner.startsWith("top");
   const fromLeft = hw.startCorner.endsWith("left");
@@ -133,20 +132,7 @@ export function buildWiringMap(hw: HardwareConfig): WiringMap {
     }
   }
 
-  const warnings: string[] = [];
-  if (cols * rows > controller.maxPixels) {
-    warnings.push(`${cols * rows} px exceeds ${controller.id} limit of ${controller.maxPixels} px`);
-  }
-  for (const span of ports) {
-    if (span.pixels > controller.pixelsPerPort) {
-      warnings.push(`Port ${span.port}: ${span.pixels} px > ${controller.pixelsPerPort} px/port`);
-    }
-  }
-  if (activePorts < controller.ports) {
-    warnings.push(`${controller.ports - activePorts} port(s) unused — check your wiring map`);
-  }
-
-  return { pixels, ports, zLinks, warnings, totalPixels: cols * rows };
+  return { pixels, ports, zLinks, warnings: [], totalPixels: cols * rows };
 }
 
 export const PORT_COLORS = [

@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { listSavedProjects, readAutosave, type ProjectMeta } from "@/lib/projectStore";
 import {
-  CHIPSETS, COLOR_ORDERS, CONTROLLERS, DEFAULT_HARDWARE, ROUTINGS, START_CORNERS,
-  getController, type HardwareConfig, type RoutingPattern,
+  COLOR_ORDERS, DEFAULT_HARDWARE, ROUTINGS, START_CORNERS,
+  type HardwareConfig, type RoutingPattern,
 } from "@/types/hardware";
 import { Icon } from "./icons";
 
@@ -65,7 +65,6 @@ export default function ProjectLauncherModal(p: Props) {
   const others = saved.filter((m) => m.id !== hero?.id);
   const metaLine = (m: ProjectMeta) => (
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-zinc-400">
-      <span>{m.controller} • {m.chipset}</span>
       <span>{m.cols}×{m.rows} • {m.layerCount} Layer{m.layerCount === 1 ? "" : "s"}</span>
       <span>{ROUTING_LABEL[m.routing as RoutingPattern] ?? m.routing}</span>
     </div>
@@ -103,7 +102,7 @@ export default function ProjectLauncherModal(p: Props) {
                   <div className="grid h-11 w-11 place-items-center rounded-xl bg-teal-400/15 text-teal-300"><Icon name="plus" size={22} /></div>
                   <div className="mt-3 text-[15px] font-bold text-zinc-100">Start New Project</div>
                   <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    Configure a fresh Toran or Matrix setup with custom controller, IC chipset, dimensions, and wiring topology.
+                    Configure a fresh Toran or Matrix setup with your grid dimensions and wiring topology.
                   </p>
                   <div className="mt-3 text-[11px] font-semibold text-teal-300">Configure workspace →</div>
                 </button>
@@ -163,25 +162,15 @@ export default function ProjectLauncherModal(p: Props) {
                   onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
               </section>
 
-              <section className="mb-4 grid gap-3 sm:grid-cols-3">
-                <label><div className="label mb-1.5">Controller</div>
-                  <select className="field" value={draft.hardware.controllerId} onChange={(e) => {
-                    const c = getController(e.target.value);
-                    setHw("controllerId", c.id);
-                    setHw("activePorts", c.ports);
-                  }}>
-                    {CONTROLLERS.map((c) => <option key={c.id} value={c.id}>{c.id} · {c.ports}P / {c.maxPixels.toLocaleString()}px</option>)}
-                  </select>
-                </label>
-                <label><div className="label mb-1.5">Driver IC</div>
-                  <select className="field" value={draft.hardware.chipsetId} onChange={(e) => setHw("chipsetId", e.target.value)}>
-                    {CHIPSETS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </label>
+              <section className="mb-4 grid gap-3 sm:grid-cols-2">
                 <label><div className="label mb-1.5">Color Order</div>
                   <select className="field" value={draft.hardware.colorOrder} onChange={(e) => setHw("colorOrder", e.target.value as HardwareConfig["colorOrder"])}>
                     {COLOR_ORDERS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
+                </label>
+                <label><div className="label mb-1.5">Active Ports</div>
+                  <input type="number" min="1" max="16" className="field" value={draft.hardware.activePorts}
+                    onChange={(e) => setHw("activePorts", Math.max(1, Math.min(16, +e.target.value || 1)))} />
                 </label>
               </section>
 

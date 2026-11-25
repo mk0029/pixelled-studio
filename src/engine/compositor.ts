@@ -1,6 +1,6 @@
 import { hexToRgb, hslToRgb, polarCoords, rotateUV, sampleShader, type ShaderContext } from "./mathShaders";
 import { renderTextLayer } from "./textRenderer";
-import { renderSpriteLayer } from "./effects/characterSprites";
+import { renderCharacterVideoLayer, renderSpriteLayer } from "./effects/characterSprites";
 import { renderDotsLinesLayer } from "./effects/dotsLines";
 import { sampleMedia } from "./mediaRenderer";
 import { sampleMathEffect, getMathEffect } from "./mathCatalog";
@@ -70,7 +70,8 @@ function blendChannel(dst: number, src: number, mode: BlendMode): number {
   const a = dst / 255;
   const b = src / 255;
   switch (mode) {
-    case "add": return dst + src;
+    case "add":
+    case "lighter": return dst + src;
     case "multiply": return dst * b;
     case "screen": return 255 - (255 - dst) * (1 - b);
     case "overlay": return 255 * (a < 0.5 ? 2 * a * b : 1 - 2 * (1 - a) * (1 - b));
@@ -214,8 +215,10 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
     const gain = (layer.brightness / 100) * envelope * (kb ?? 1) * audioGain * opacity;
     const hueShift = layer.hueShift + (kh ?? 0);
 
-    if (layer.effect === "media") {
-      const px = sampleMedia(layer, cols, rows, localT);
+    if (layer.effect === "media" || layer.effect === "character-video") {
+      const px = layer.effect === "character-video" && !layer.mediaSrc
+        ? renderCharacterVideoLayer(layer, cols, rows, localT)
+        : sampleMedia(layer, cols, rows, localT);
       if (!px) continue;
       const hueShift = (layer.hueShift || 0) / 360;
       const satMul = (layer.saturation ?? 100) / 100;

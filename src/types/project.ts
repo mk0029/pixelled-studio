@@ -1,6 +1,6 @@
 import { DEFAULT_HARDWARE, type HardwareConfig } from "./hardware";
 
-export type BlendMode = "normal" | "add" | "multiply" | "screen" | "overlay" | "difference" | "max" | "behind";
+export type BlendMode = "normal" | "add" | "lighter" | "multiply" | "screen" | "overlay" | "difference" | "max" | "behind";
 export type Symmetry = "none" | "horizontal" | "vertical" | "quad";
 export type LayerKind = "effect" | "math" | "text" | "media";
 
@@ -32,6 +32,7 @@ export const EFFECTS: EffectMeta[] = [
   { id: "rainbow", name: "Rainbow Spectrum",  glyph: "◒", group: "Patterns",        kind: "effect", detail: "Full hue cycle across the grid" },
   { id: "sparkle", name: "Sparkle / Twinkle", glyph: "✦", group: "Patterns",        kind: "effect", detail: "Hash-driven random pixel flashes" },
   { id: "media",   name: "Image / Video",     glyph: "▣", group: "Text & Media",   kind: "media",   detail: "Imported image or video frames" },
+  { id: "character-video", name: "Character / Video", glyph: "♟", group: "Text & Media", kind: "media", detail: "Stackable characters, clips and offline dance presets" },
   { id: "dots-lines", name: "Dots / Lines", glyph: "•", group: "Patterns", kind: "effect", detail: "Stackable dots, lines and dashed lines layer" },
   // LEDEdit .swf Flash effects — click to import the matching .swf file (captured via Ruffle)
   { id: "swf-linear-1",   name: "Linear effect 1",   glyph: "⚡", group: "LEDEdit FX", kind: "media", detail: "LEDEdit SWF linear animation" },
@@ -231,7 +232,7 @@ export interface Layer {
   /** Extra stroke width to keep Devanagari matras legible on small matrices. */
   textStroke?: number;
   // Media layer fields
-  mediaType?: "image" | "video" | "gif" | "webm" | "swf" | "sfx";
+  mediaType?: "image" | "video" | "gif" | "webm" | "avi" | "swf" | "sfx";
   // Characters / real-world video preprocessing
   mediaChromaEnabled?: boolean;
   mediaChromaColor?: string;
@@ -339,7 +340,7 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     text: "TOHRAN",
     textSize: 1,
     textSpeed: 1,
-    blend: effect === "sweep" ? "add" : "normal",
+    blend: effect === "character-video" ? "screen" : effect === "sweep" ? "add" : "normal",
     direction: "normal",
     dotsMode: "dots",
     dotsLayout: "grid",
@@ -370,7 +371,20 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     dotsBlinkMode: "none",
     dotsPalette: ["#ffffff", "#9a7cff", "#38e1d4", "#ff5c8a"],
     dotsGlow: false,
-    spriteType: "heart",
+    mediaType: effect === "character-video" ? "video" : undefined,
+    mediaScale: 1,
+    mediaScaleY: 1,
+    mediaSpeed: 1,
+    mediaChromaEnabled: effect === "character-video",
+    mediaChromaColor: "#00ff00",
+    mediaChromaTolerance: 0.35,
+    mediaBrightness: 100,
+    mediaContrast: 100,
+    mediaSaturation: 100,
+    mediaThreshold: 0,
+    mediaSilhouette: false,
+    mediaFlipX: false,
+    spriteType: effect === "character-video" ? "bhangra-silhouette" : "heart",
     spriteCount: 1,
     spriteScale: 1,
     spriteSpeed: 1,
@@ -429,7 +443,7 @@ export function normalizeProject(project: Project): Project {
       textSpeed: Math.max(0.2, l.textSpeed ?? 1),
       speed: Math.max(0.2, l.speed ?? 1),
       textContent: l.textContent ?? l.text ?? "TOHRAN",
-      textFont: l.textFont ?? "ui-monospace, monospace",
+      textFont: l.textFont ?? "var(--font-noto-sans-devanagari), sans-serif",
       textSpacing: l.textSpacing ?? 1,
       textX: l.textX ?? 0,
       textY: l.textY ?? 0,
@@ -438,13 +452,13 @@ export function normalizeProject(project: Project): Project {
       textColors: l.textColors ?? [l.color || "#ffffff"],
       textOutline: l.textOutline ?? false,
       textShadow: l.textShadow ?? false,
-      textStroke: Math.max(0, Math.min(3, l.textStroke ?? 0)),
+      textStroke: Math.max(0, Math.min(4, l.textStroke ?? 0)),
       mediaType: l.mediaType,
       mediaFrames: l.mediaFrames ?? 0,
       mediaFps: l.mediaFps ?? 12,
-      mediaSpeed: l.mediaSpeed ?? 1,
+      mediaSpeed: Math.max(0.25, Math.min(3, l.mediaSpeed ?? 1)),
       mediaSmoothing: l.mediaSmoothing ?? true,
-      mediaScale: l.mediaScale ?? 1,
+      mediaScale: Math.max(0.1, Math.min(3, l.mediaScale ?? 1)),
       mediaScaleY: l.mediaScaleY ?? l.mediaScale ?? 1,
       mediaOffsetX: l.mediaOffsetX ?? 0,
       mediaOffsetY: l.mediaOffsetY ?? 0,

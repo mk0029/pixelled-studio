@@ -5,7 +5,6 @@ const DB_NAME = "tohran-led-studio";
 const STORE = "projects";
 const LIBRARY = "library";
 const MEDIA = "media";
-const LED_FRAMES = "ledFrames";
 const KEY = "current";
 const DB_VERSION = 5;
 
@@ -17,8 +16,6 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(LIBRARY)) db.createObjectStore(LIBRARY);
       if (!db.objectStoreNames.contains(MEDIA)) db.createObjectStore(MEDIA);
-if (!db.objectStoreNames.contains(LED_FRAMES)) db.createObjectStore(LED_FRAMES);
-
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -120,32 +117,6 @@ export async function migrateLocalStorageProjects(): Promise<void> {
   } catch {
     // Ignore malformed legacy data.
   }
-}
-
-// Compact decoded .led frame buffers (Uint8Array chunks). Never use localStorage for these.
-export async function saveLedFrameChunk(key: string, chunk: Uint8Array): Promise<void> {
-  await write(LED_FRAMES, chunk, key);
-}
-
-export async function loadLedFrameChunk(key: string): Promise<Uint8Array | null> {
-  return tx<Uint8Array | undefined>(LED_FRAMES, "readonly", (s) => s.get(key)).then((v) => v ?? null);
-}
-
-export async function deleteLedFrameChunk(key: string): Promise<void> {
-  await openDb().then((db) => new Promise<void>((resolve, reject) => {
-    const t = db.transaction(LED_FRAMES, "readwrite");
-    t.objectStore(LED_FRAMES).delete(key);
-    t.oncomplete = () => resolve();
-    t.onerror = () => reject(t.error);
-  }));
-}
-
-export async function listLedFrameChunks(): Promise<string[]> {
-  return openDb().then((db) => new Promise<string[]>((resolve, reject) => {
-    const req = db.transaction(LED_FRAMES, "readonly").objectStore(LED_FRAMES).getAllKeys();
-    req.onsuccess = () => resolve((req.result as IDBValidKey[]).map(String));
-    req.onerror = () => reject(req.error);
-  }));
 }
 
 

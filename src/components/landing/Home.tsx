@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/studio/icons";
 import { useStudioSettings } from "@/context/StudioSettingsContext";
@@ -13,9 +14,8 @@ const FEATURES = [
   { icon: "wifi", title: "100% Offline-First PWA", body: "Installable on Windows, Android or macOS — works with zero internet connection at real event sites." },
 ];
 
-const CONTROLLERS = ["T-1000S", "T-4000S", "T-8000A", "T-8000AC", "T-300K", "T-500K", "K-1000C", "K-4000C", "K-8000C", "H801TC", "H802RA", "ESP32-WLED"];
-const ICS = ["WS2811", "WS2812B", "UCS1903", "TM1804", "SM16703", "SK6812", "DMX512"];
-const EXPORTS = [".led", ".bin", ".avi", ".json"];
+const GRIDS = ["8×8", "16×16", "16×32", "16×60", "32×64", "64×64", "custom"];
+const EXPORTS = ["LEDEdit AVI", "FSEQ", "BIN", "JSON"];
 const MEDIA = ["PNG", "JPG", "GIF", "WEBP", "MP4", "WEBM"];
 
 // framer-motion's whileInView never fires in this app, so reveal on a raw IntersectionObserver
@@ -50,7 +50,10 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
           <div className="text-[11px] font-bold tracking-tight">PixleLED <span className="text-zinc-500">Studio</span></div>
           <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-zinc-400">by Jambh Electricals</span>
         </div>
-        <button onClick={launch} className="btn btn-primary text-[10px]">Open Studio →</button>
+        <div className="flex items-center gap-2">
+          <Link href="/library" className="btn text-[10px]">Asset Library</Link>
+          <button onClick={launch} className="btn btn-primary text-[10px]">Open Studio →</button>
+        </div>
       </header>
 
       <section className="relative flex min-h-[70dvh] flex-col items-center justify-center overflow-hidden px-4 py-16 text-center">
@@ -58,7 +61,7 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
         <div className="relative max-w-3xl">
           <div className="label mb-3">PixleLED Studio · Engineered by Jambh Electricals</div>
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">Professional Pixel LED Toran & Matrix Programming — Directly in Your Browser.</h1>
-          <p className="mt-4 text-[13px] leading-relaxed text-zinc-400">Zero installation, 100% client-side speed, offline PWA support and universal controller compatibility for 100+ math shaders and multi-layer text.</p>
+          <p className="mt-4 text-[13px] leading-relaxed text-zinc-400">Zero installation, 100% client-side speed, offline PWA support, 200+ shaders and stackable text, characters and dots/lines layers — exported as LEDEdit-ready AVI.</p>
           <div className="mt-7 flex items-center justify-center gap-2">
             <button onClick={launch} className="btn btn-primary anim-fade-up anim-fade-up-1 anim-hover">Launch PixleLED Studio</button>
             <button onClick={() => window.open("https://www.instagram.com/jambh_elecricals/", "_blank", "noopener,noreferrer")} className="btn anim-fade-up anim-fade-up-2 anim-hover">Send Feedback</button>
@@ -77,10 +80,10 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
           <div className="label mb-6 text-center">Quick Start Guide</div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              ["1", "Configure Toran & Controller Hardware", "Choose controller, IC chipset and grid size, wiring path."],
-              ["2", "Stack Math, Text, Media & Effects", "Add 100+ shaders, 200+ presets, text layers or import media."],
+              ["1", "Set the LED Matrix Size", "Pick your grid dimensions and wiring path — preview matches the hardware."],
+              ["2", "Stack Math, Text, Characters & Dots", "Add shaders, presets, Hindi text, video clips or hand-drawn stamps."],
               ["3", "Align & Merge on Timeline", "Drag, resize, split, magnetically snap, blend layers."],
-              ["4", "Export for Hardware", "Export .avi / .led / .bin / .json for SD card or LEDEdit."],
+              ["4", "Export for LEDEdit", "Export an uncompressed AVI at the exact matrix size."],
             ].map(([n, t, b]) => (
               <div key={n} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
                 <div className="font-mono text-[10px] text-teal-300">{n}</div>
@@ -95,15 +98,15 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
       <section ref={formats.ref} style={{ transitionDuration: `${getTransition(0.5).duration}s` }}
         className={`border-t border-zinc-800 px-4 py-12 ${formats.inView ? "reveal-in" : "reveal"}`}>
         <div className="mx-auto max-w-5xl">
-          <div className="label mb-6 text-center">Supported Formats & Controllers</div>
+          <div className="label mb-6 text-center">Matrix Sizes, Inputs & Exports</div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-              <div className="label mb-2">Controllers</div>
-              <div className="flex flex-wrap gap-1.5">{CONTROLLERS.map((c) => <span key={c} className="chip text-[9px]">{c}</span>)}</div>
+              <div className="label mb-2">Grid sizes</div>
+              <div className="flex flex-wrap gap-1.5">{GRIDS.map((c) => <span key={c} className="chip text-[9px]">{c}</span>)}</div>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-              <div className="label mb-2">Driver ICs</div>
-              <div className="flex flex-wrap gap-1.5">{ICS.map((c) => <span key={c} className="chip text-[9px]">{c}</span>)}</div>
+              <div className="label mb-2">Asset library</div>
+              <div className="text-[10px] text-zinc-500">Browse .swf, .avi and .tol animations from Sanity and load clips straight into the studio.</div>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
               <div className="label mb-2">Media & Effect Inputs</div>
@@ -115,7 +118,7 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
             </div>
           </div>
           <p className="mt-4 text-[10px] leading-relaxed text-zinc-500">
-            Timeline layers accept custom math formulas; exports stream hardware-mapped RGB frames for T-1000S / T-8000A / K-1000C / WLED SD-card or Art-Net pipelines.
+            Every frame is rendered at the exact grid size with nearest-neighbour sampling, then written as uncompressed BGR24 AVI for LEDEdit.
           </p>
         </div>
       </section>

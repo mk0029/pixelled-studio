@@ -19,7 +19,7 @@ const FORMATS: { id: ExportFormat; label: string; detail: string; warn?: string 
   { id: "zip", label: "Frame ZIP · PNG sequence", detail: "Every frame as PNG, plus project.json, manifest.json and wiring.csv." },
   { id: "avi", label: "Video · AVI (MJPEG)", detail: "Motion-JPEG preview for VLC and Windows Media Player." },
   { id: "avi-raw", label: "LEDEdit Import · AVI (uncompressed 24-bit)", detail: "Uncompressed BI_RGB BGR24 at matrix size — opens in every LEDEdit via File → Open (.avi).", warn: "Large files (W×H×3 bytes per frame). Use for LEDEdit interchange, not SD cards." },
-  { id: "fseq", label: "Falcon · FSEQ v2 (uncompressed)", detail: "PSEQ v2 sequence with one channel byte per LED channel in physical wiring order. Reliable fallback when a .led profile is not probed yet." },
+  { id: "fseq", label: "Falcon · FSEQ v2 (uncompressed)", detail: "One channel byte per LED channel in physical wiring order, for Falcon-style players." },
   { id: "gif", label: "Video · animated GIF", detail: "Looping GIF at the chosen pixel size; plays anywhere a GIF does." },
   {
     id: "swf",
@@ -83,6 +83,7 @@ export default function ExportModal(p: Props) {
   const frames = Math.max(1, Math.round(p.project.duration * p.project.fps));
   const active = FORMATS.find((f) => f.id === format)!;
   const raster = format === "zip" || format === "avi" || format === "avi-raw" || format === "gif" || format === "swf";
+  const scalable = raster && format !== "avi-raw";
 
   const run = async () => {
     setBusy(true);
@@ -133,7 +134,7 @@ export default function ExportModal(p: Props) {
             </button>
           ))}
 
-          {raster && (
+          {scalable && (
             <div className="flex items-center gap-2 pt-1">
               <span className="label">LED size</span>
               {SCALES.map((s) => (
@@ -154,13 +155,8 @@ export default function ExportModal(p: Props) {
 
           {format === "avi-raw" && (
             <div className="rounded border border-teal-500/25 bg-teal-500/[.06] px-2.5 py-2 text-[10px] leading-snug text-teal-200/80">
-              <div className="mb-1 font-semibold">LedEdit recording workflow</div>
-              <ol className="list-decimal space-y-0.5 pl-4">
-                <li>Export this AVI at the exact matrix size ({p.project.hardware.cols} × {p.project.hardware.rows}).</li>
-                <li>In LedEdit 2014: File → Open, select the AVI, and set the same matrix size / frame rate.</li>
-                <li>Press Record to capture the animation, then export to the SD card as .led.</li>
-                <li>Upload the resulting <code>_rec.bin</code> plus that .led under Technician Tools to reuse the mapping.</li>
-              </ol>
+              <div className="mb-1 font-semibold">LEDEdit import</div>
+              <p>Exported at exactly {p.project.hardware.cols} × {p.project.hardware.rows} px — one BGR24 pixel per LED. Open the AVI in LEDEdit with File → Open; no scaling or interpolation is applied.</p>
             </div>
           )}
 

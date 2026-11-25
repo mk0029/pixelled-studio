@@ -3,7 +3,7 @@
  * `A × B × 3` raw RGB bytes per frame; channel bytes are 7-bit.
  *
  * `A` is rows and `B` is columns, so pixel `p` is `(y * B + x)`.
- * This order is assumed, not yet proven against a matching `.tol`/`.led` pair.
+ * This order is assumed, not yet proven against a matching `.tol` export.
  */
 
 export interface TolProgram {

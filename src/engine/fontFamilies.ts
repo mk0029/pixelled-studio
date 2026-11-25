@@ -2,57 +2,66 @@ import type { Project } from "@/types/project";
 
 export interface FontFamily {
   name: string;
+  /** CSS font-family stack; next/font variables resolve to self-hosted fonts. */
   css: string;
   script: "hindi" | "english" | "pixel" | "display" | "stylish";
 }
 
+const V = (name: string, fallback: string) => `var(--font-${name}), ${fallback}`;
+
 export const FONT_FAMILIES: FontFamily[] = [
-  { name: "Noto Sans Devanagari", css: "'Noto Sans Devanagari', sans-serif", script: "hindi" },
-  { name: "Teko", css: "'Teko', sans-serif", script: "hindi" },
-  { name: "Mukta", css: "'Mukta', sans-serif", script: "hindi" },
-  { name: "Hind", css: "'Hind', sans-serif", script: "hindi" },
-  { name: "Poppins", css: "'Poppins', sans-serif", script: "hindi" },
-  { name: "Rozha One", css: "'Rozha One', serif", script: "stylish" },
-  { name: "Yatra One", css: "'Yatra One', cursive", script: "stylish" },
-  { name: "Kalam", css: "'Kalam', cursive", script: "stylish" },
-  { name: "Gotu", css: "'Gotu', sans-serif", script: "hindi" },
-  { name: "Press Start 2P", css: "'Press Start 2P', monospace", script: "pixel" },
-  { name: "Silkscreen", css: "'Silkscreen', monospace", script: "pixel" },
-  { name: "VT323", css: "'VT323', monospace", script: "pixel" },
-  { name: "Orbitron", css: "'Orbitron', sans-serif", script: "display" },
-  { name: "Bungee", css: "'Bungee', sans-serif", script: "display" },
-  { name: "Anton", css: "'Anton', sans-serif", script: "display" },
-  { name: "Bebas Neue", css: "'Bebas Neue', sans-serif", script: "display" },
-  { name: "Oswald", css: "'Oswald', sans-serif", script: "display" },
-  { name: "Montserrat", css: "'Montserrat', sans-serif", script: "display" },
-  { name: "Pacifico", css: "'Pacifico', cursive", script: "stylish" },
-  { name: "Permanent Marker", css: "'Permanent Marker', cursive", script: "stylish" },
-  { name: "Cinzel", css: "'Cinzel', serif", script: "stylish" },
+  { name: "Noto Sans Devanagari", css: V("noto-sans-devanagari", "sans-serif"), script: "hindi" },
+  { name: "Teko", css: V("teko", "sans-serif"), script: "hindi" },
+  { name: "Mukta", css: V("mukta", "sans-serif"), script: "hindi" },
+  { name: "Hind", css: V("hind", "sans-serif"), script: "hindi" },
+  { name: "Poppins", css: V("poppins", "sans-serif"), script: "hindi" },
+  { name: "Gotu", css: V("gotu", "sans-serif"), script: "hindi" },
+  { name: "Rajdhani", css: V("rajdhani", "sans-serif"), script: "hindi" },
+  { name: "Rozha One", css: V("rozha-one", "serif"), script: "stylish" },
+  { name: "Yatra One", css: V("yatra-one", "serif"), script: "stylish" },
+  { name: "Kalam", css: V("kalam", "cursive"), script: "stylish" },
+  { name: "Modak", css: V("modak", "cursive"), script: "stylish" },
+  { name: "Pacifico", css: V("pacifico", "cursive"), script: "stylish" },
+  { name: "Press Start 2P", css: V("press-start-2p", "monospace"), script: "pixel" },
+  { name: "Silkscreen", css: V("silkscreen", "monospace"), script: "pixel" },
+  { name: "VT323", css: V("vt323", "monospace"), script: "pixel" },
+  { name: "Orbitron", css: V("orbitron", "sans-serif"), script: "display" },
+  { name: "Bungee", css: V("bungee", "sans-serif"), script: "display" },
+  { name: "Anton", css: V("anton", "sans-serif"), script: "display" },
+  { name: "Bebas Neue", css: V("bebas-neue", "sans-serif"), script: "display" },
+  { name: "Oswald", css: V("oswald", "sans-serif"), script: "display" },
+  { name: "Montserrat", css: V("montserrat", "sans-serif"), script: "display" },
   { name: "Pixel Mono", css: "ui-monospace, monospace", script: "pixel" },
 ];
 
-const fontSpec = (family: string, weight: number, size: number) => {
-  const named = FONT_FAMILIES.find((f) => f.css === family)?.name;
-  return `${weight} ${size}px ${named ? `"${named}"` : family}`;
-};
+/** Canvas `font` cannot parse CSS variables, so expand next/font vars first. */
+export function resolveFontStack(stack: string): string {
+  if (typeof document === "undefined") return stack;
+  const style = getComputedStyle(document.documentElement);
+  return stack.replace(/var\((--font-[a-z0-9-]+)(?:,\s*([^)]+))?\)/g, (_, name: string, fallback?: string) =>
+    style.getPropertyValue(name).trim() || fallback?.trim() || "sans-serif",
+  );
+}
 
 /** Canvas silently falls back to Arial unless the web font is loaded first. */
 export async function preloadFont(family: string, weight = 700, size = 24): Promise<void> {
   if (typeof document === "undefined" || !document.fonts) return;
+  const stack = resolveFontStack(family);
   try {
-    await document.fonts.load(fontSpec(family, weight, size));
+    await document.fonts.load(`${weight} ${size}px ${stack}`);
     await document.fonts.ready;
   } catch {
-    // Offline / blocked Google Fonts: keep the system fallback.
+    // Offline: the self-hosted next/font files are cached by the service worker.
   }
 }
 
 export async function preloadProjectFonts(project: Project): Promise<void> {
-  const families = new Set<string>();
+  const fonts = new Map<string, number>();
   for (const layer of project.layers) {
     if (layer.effect === "text" || layer.kind === "text") {
-      families.add(layer.textFont ?? FONT_FAMILIES[FONT_FAMILIES.length - 1].css);
+      const font = layer.textFont ?? FONT_FAMILIES[0].css;
+      fonts.set(font, Math.max(8, Math.min(96, layer.textSize ?? 16)));
     }
   }
-  await Promise.all([...families].map((family) => preloadFont(family)));
+  await Promise.all([...fonts].map(([font, size]) => preloadFont(font, 700, size)));
 }

@@ -8,8 +8,6 @@ export interface ProjectMeta {
   id: string;
   name: string;
   savedAt: number;
-  controller: string;
-  chipset: string;
   cols: number;
   rows: number;
   routing: string;
@@ -29,7 +27,6 @@ function writeJson(key: string, value: unknown) {
 
 const metaOf = (p: Project): ProjectMeta => ({
   id: p.id, name: p.name, savedAt: Date.now(),
-  controller: p.hardware.controllerId, chipset: p.hardware.chipsetId,
   cols: p.hardware.cols, rows: p.hardware.rows, routing: p.hardware.routing,
   layerCount: p.layers.length,
 });

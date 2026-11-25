@@ -1,3 +1,5 @@
+import { preloadFont, resolveFontStack } from "./fontFamilies";
+
 export interface TextRenderContext {
   layer: import("@/types/project").Layer;
   cols: number;
@@ -31,15 +33,14 @@ function splitGraphemes(text: string): string[] {
 /** Return false while a web font is still loading so Canvas never paints Arial. */
 function fontReady(font: string): boolean {
   if (typeof document === "undefined" || !document.fonts) return true;
-  if (!font.includes("'")) return true; // system/generic stacks need no web-font load
-  const spec = `700 24px ${font}`;
+  const stack = resolveFontStack(font);
+  const spec = `700 24px ${stack}`;
   if (document.fonts.check(spec)) return true;
   if (!pendingFonts.has(font)) {
     pendingFonts.add(font);
     void (async () => {
       try {
-        await document.fonts.load(spec);
-        await document.fonts.ready;
+        await preloadFont(font, 700, 24);
       } catch { /* offline: fall back on the next frame */ }
       finally { pendingFonts.delete(font); }
     })();
@@ -53,7 +54,7 @@ function buildColors(layer: import("@/types/project").Layer): string[] {
 
 export function renderTextLayer(layer: import("@/types/project").Layer, cols: number, rows: number, time: number): Uint8ClampedArray | null {
   if (typeof document === "undefined") return null;
-  const font = layer.textFont || "ui-monospace, monospace";
+  const font = resolveFontStack(layer.textFont || "ui-monospace, monospace");
   if (!fontReady(font)) return null;
 
   const { canvas, ctx, w, h } = getCanvas(cols, rows);
@@ -66,7 +67,7 @@ export function renderTextLayer(layer: import("@/types/project").Layer, cols: nu
 
   const colors = buildColors(layer);
   const dir = layer.textDirection || "left";
-  const spacing = layer.textSpacing ?? 1;
+  const spacing = Math.max(-4, Math.min(16, layer.textSpacing ?? 1));
   const speed = Math.max(0.2, layer.textSpeed ?? layer.speed ?? 1);
 
   ctx.font = `700 ${size}px ${font}`;
@@ -108,7 +109,7 @@ export function renderTextLayer(layer: import("@/types/project").Layer, cols: nu
 
   let cx = w - offset + (layer.textX ?? 0) * (w / cols);
   const baseY = h / 2 + (layer.textY ?? 0) * (h / rows);
-  const boldStroke = Math.max(0, layer.textStroke ?? 0) * size * 0.015;
+  const boldStroke = Math.max(0, Math.min(4, layer.textStroke ?? 0)) * size * 0.02;
   const mode = layer.textColorMode || "solid";
 
   chars.forEach((ch, i) => {

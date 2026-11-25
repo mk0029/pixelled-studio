@@ -249,7 +249,7 @@ export function sampleMedia(layer: Layer, cols: number, rows: number, time: numb
 /** Exporters call this once so data-URL media is decoded before frame 0. */
 export async function preloadMedia(project: Project): Promise<void> {
   const sources = new Set(
-    project.layers.filter((l) => l.effect === "media" && l.mediaSrc).map((l) => l.mediaSrc!),
+    project.layers.filter((l) => (l.effect === "media" || l.effect === "character-video") && l.mediaSrc).map((l) => l.mediaSrc!),
   );
   await Promise.all(
     [...sources].map(

@@ -262,7 +262,7 @@ export default function Inspector(p: Props) {
               </section>
             )}
 
-            {l.effect === "media" && l.mediaSrc ? (
+            {(l.effect === "media" || l.effect === "character-video") && l.mediaSrc ? (
               <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
                 <div className="label">Transform</div>
                 {slider("Width", l.mediaScale ?? 1, 0.1, 2, 0.05, (v) => p.onLayer({ mediaScale: v }), "×")}
@@ -289,7 +289,7 @@ export default function Inspector(p: Props) {
               </section>
             ) : null}
 
-            {l.effect === "media" && l.mediaSrc ? (
+            {(l.effect === "media" || l.effect === "character-video") && l.mediaSrc ? (
               <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
                 <div className="label">Fit & channels</div>
                 <label className="block">
@@ -314,7 +314,7 @@ export default function Inspector(p: Props) {
               </section>
             ) : null}
 
-            {l.effect === "media" && l.mediaSrc ? (
+            {(l.effect === "media" || l.effect === "character-video") && l.mediaSrc ? (
               <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
                 <div className="label">Chroma key & matrix preprocessing</div>
                 <label className="flex items-center gap-2 text-[11px] text-zinc-400">
@@ -620,7 +620,7 @@ export default function Inspector(p: Props) {
                   style={{ fontFamily: l.textFont ?? "ui-monospace, monospace", fontWeight: 700 }}>
                   शुभ विवाह · Hindi 123
                 </div>
-                {slider("Bold / stroke", l.textStroke ?? 0, 0, 3, 0.5, (v) => p.onLayer({ textStroke: v }))}
+                {slider("Bold / stroke", l.textStroke ?? 0, 0, 4, 0.5, (v) => p.onLayer({ textStroke: v }))}
                 <label className="flex items-center gap-2 text-[11px] text-zinc-400">
                   <input type="checkbox" checked={l.textAutoFit !== false} onChange={(e) => p.onLayer({ textAutoFit: e.target.checked })} />
                   Auto-fit height (scales with matrix)

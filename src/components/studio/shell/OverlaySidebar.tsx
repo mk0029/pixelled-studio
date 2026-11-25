@@ -9,10 +9,10 @@ import TextPanel from "../panels/TextPanel";
 import AudioPanel from "../panels/AudioPanel";
 
 import CharacterSpritesPanel from "../panels/CharacterSpritesPanel";
+import DotsLinesPanel from "../panels/DotsLinesPanel";
 import type { Project } from "@/types/project";
-import { getController, getChipset } from "@/types/hardware";
 
-export type SidebarTabId = "layouts" | "effects" | "layers" | "text" | "audio" | "media" | "tools" | "sprites";
+export type SidebarTabId = "layouts" | "effects" | "layers" | "text" | "audio" | "media" | "tools" | "sprites" | "dots";
 
 interface TabDef {
   id: SidebarTabId;
@@ -29,8 +29,9 @@ const TABS: TabDef[] = [
   { id: "text", label: "Hindi/English Text", shortcut: "Alt+4", icon: "sliders", phase: "Phase 3" },
   { id: "audio", label: "Audio Beat-Sync", shortcut: "Alt+5", icon: "wifi", phase: "Phase 3" },
   { id: "media", label: "Media & Python Import", shortcut: "Alt+6", icon: "image", phase: "Phase 4" },
-  { id: "tools", label: "Technician Tools & SMPS", shortcut: "Alt+7", icon: "shield", phase: "Phase 5" },
+  { id: "tools", label: "Studio Tools", shortcut: "Alt+7", icon: "shield", phase: "v2" },
   { id: "sprites", label: "Characters & Sprites", shortcut: "Alt+8", icon: "sparkles", phase: "Phase 6" },
+  { id: "dots", label: "Dots & Lines", shortcut: "Alt+9", icon: "sparkles", phase: "Phase 6" },
 ];
 
 interface Props {
@@ -56,7 +57,7 @@ interface Props {
   onOpenSettings: () => void;
   onAdd: (effect: string, name?: string) => void;
   onAddPreset: (preset: import("@/engine/presetLibrary").Preset) => void;
-  onImportMedia: (file: File, onStatus: (message: string) => void) => Promise<void>;
+  onImportMedia: (file: File, onStatus: (message: string) => void, effect?: "media" | "character-video") => Promise<void>;
   onApplyHardware: (hardware: import("@/types/hardware").HardwareConfig) => void;
   onCommit: (updater: (p: import("@/types/project").Project) => import("@/types/project").Project, key?: string) => void;
 }
@@ -81,7 +82,7 @@ export default function OverlaySidebar(p: Props) {
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
       if (e.altKey) {
         const index = Number(e.key);
-        if (index >= 1 && index <= 8) {
+        if (index >= 1 && index <= TABS.length) {
           e.preventDefault();
           const tab = TABS[index - 1];
           p.onActiveTabChange(tab.id);
@@ -104,8 +105,6 @@ export default function OverlaySidebar(p: Props) {
   };
 
   const activeTab = TABS.find((t) => t.id === p.activeTab) ?? TABS[0];
-  const ctl = getController(p.project.hardware.controllerId);
-  const chip = getChipset(p.project.hardware.chipsetId);
   const amps = (p.project.hardware.cols * p.project.hardware.rows * 0.06 * p.project.masterBrightness) / 100;
 
   const drawer = (
@@ -159,7 +158,7 @@ export default function OverlaySidebar(p: Props) {
             <button className="btn btn-icon" onClick={p.onRedo} disabled={!p.canRedo} title="Redo (Ctrl+Y)"><Icon name="redo" /></button>
             <button onClick={p.onHardware} title="Open hardware & wiring configurator" className="flex items-center gap-2 rounded-md border border-teal-500/30 bg-teal-500/[.07] px-2 py-1 hover:border-teal-400/60">
               <Icon name="cpu" size={14} />
-              <span className="text-[11px] font-semibold text-teal-300">{ctl.id}</span>
+              <span className="text-[11px] font-semibold text-teal-300">{p.project.hardware.cols}×{p.project.hardware.rows}</span>
             </button>
           </div>
 
@@ -186,7 +185,7 @@ export default function OverlaySidebar(p: Props) {
           </div>
 
           <div className="text-[10px] text-zinc-500">
-            {p.project.hardware.cols}×{p.project.hardware.rows} · {chip.name} · Est. {amps.toFixed(1)} A
+            {p.project.hardware.cols}×{p.project.hardware.rows} · {p.project.hardware.colorOrder} · Est. {amps.toFixed(1)} A
           </div>
         </div>
       )}
@@ -207,9 +206,11 @@ export default function OverlaySidebar(p: Props) {
         ) : p.activeTab === "audio" ? (
           <AudioPanel project={{ id: p.project.id, fps: p.project.fps, duration: p.project.duration }} />
         ) : p.activeTab === "tools" ? (
-          <div className="space-y-3 p-4 text-[11px] text-zinc-400">Technician tools removed in v2 (no .led converter). Use Export → AVI for LEDEdit.</div>
+          <div className="p-4 text-[11px] text-zinc-500">Project controls are above. Change the matrix size in Layouts &amp; Wiring.</div>
         ) : p.activeTab === "sprites" ? (
-          <CharacterSpritesPanel project={p.project} onCommit={p.onCommit} onAdd={p.onAdd} />
+          <CharacterSpritesPanel project={p.project} onCommit={p.onCommit} onAdd={p.onAdd} onImportMedia={p.onImportMedia} />
+        ) : p.activeTab === "dots" ? (
+          <DotsLinesPanel project={p.project} onCommit={p.onCommit} onAdd={p.onAdd} />
         ) : (
           <div className="space-y-3 p-4">
             <div className="label">{activeTab.phase}</div>

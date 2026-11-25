@@ -123,8 +123,6 @@ export async function exportFrameZip(project: Project, map: WiringMap, opts: Exp
         fps: project.fps,
         duration: effectiveDuration(project),
         frameCount: total,
-        controller: project.hardware.controllerId,
-        chipset: project.hardware.chipsetId,
         colorOrder: project.hardware.colorOrder,
         pixelCount: map.totalPixels,
         scale,
@@ -254,8 +252,7 @@ export async function exportBin(project: Project, map: WiringMap, opts: ExportOp
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
-  const { cols, rows, colorOrder, chipsetId } = project.hardware;
-  const channels = chipsetId === "SK6812" ? 4 : 3;
+  const { cols, rows, colorOrder, channels } = project.hardware;
   const total = frameCount(project);
   const headerSize = 24;
   const frameBytes = map.pixels.length * channels;
@@ -287,8 +284,7 @@ export async function exportFseq(project: Project, map: WiringMap, opts: ExportO
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
-  const { cols, colorOrder, chipsetId } = project.hardware;
-  const channels = chipsetId === "SK6812" ? 4 : 3;
+  const { cols, colorOrder, channels } = project.hardware;
   const total = frameCount(project);
   const fps = Math.max(1, Math.round(project.fps));
   const frames: Uint8Array[] = [];

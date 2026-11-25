@@ -106,9 +106,9 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
               <Icon name="image" size={22} />
               <div className="mt-2 text-[11px] font-semibold text-zinc-300">{busy ? "Importing…" : "Click to import media"}</div>
               <div className="mt-1 text-[10px] leading-snug text-zinc-600">PNG / JPG · animated GIF · MP4 / WebM still</div>
-              <div className="mt-1 text-[10px] leading-snug text-zinc-600">Flash .swf · LEDEdit .sfx · .led / .zip</div>
+              <div className="mt-1 text-[10px] leading-snug text-zinc-600">Flash .swf · LEDEdit .sfx · .avi / .zip</div>
             </div>
-            <input ref={fileRef} type="file" accept="image/*,video/*,.gif,.swf,.sfx,.led,.zip" multiple hidden
+            <input ref={fileRef} type="file" accept="image/*,video/*,.gif,.swf,.sfx,.avi,.zip" multiple hidden
               onChange={async (e) => {
                 const picked = Array.from(e.target.files ?? []);
                 e.target.value = "";

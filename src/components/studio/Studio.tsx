@@ -20,6 +20,7 @@ import ProjectLauncherModal, { type NewProjectConfig } from "./ProjectLauncherMo
 import { AnimatePresence, motion } from "framer-motion";
 import type { ExportFormat } from "@/engine/exporters";
 import { importGif, importImageFile, importSfx, importSwf, importVideo, type ImportedMedia } from "@/engine/mediaImport";
+import { importAviUrl } from "@/lib/aviImporter";
 import LeftDock from "./LeftDock";
 import OverlaySidebar, { type SidebarTabId } from "./shell/OverlaySidebar";
 import { migrateLocalStorageProjects } from "@/lib/db";import ResizeHandle from "./ResizeHandle";
@@ -78,6 +79,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   const [fontsReady, setFontsReady] = useState(true);
 
   const zoomControlsRef = useRef<{ zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void } | null>(null);
+  const libraryLoadedRef = useRef(false);
   const [layout, setLayout] = useState(readLayout);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const [saveState, setSaveState] = useState<"loading" | "saved" | "saving" | "error">("loading");
@@ -275,7 +277,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
 
     // LEDEdit .swf effects served from your cloud (NEXT_PUBLIC_SWF_BASE_URL).
     // Only available when online — SWFs are not bundled in the project.
-    if (kind === "media" && effect !== "media") {
+    if (effect.startsWith("swf-")) {
       if (!isOnline()) {
         window.alert("SWF effects need an internet connection. Connect to the internet and try again.");
         return;
@@ -351,12 +353,12 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     if (uiTimeRef.current >= layer.startTime + layer.duration) doSeek(layer.startTime);
   }, [commit, doSeek, project.layers.length]);
 
-  const addMedia = useCallback((media: ImportedMedia, name: string) => {
+  const addMedia = useCallback((media: ImportedMedia, name: string, effect: "media" | "character-video" = "media") => {
     const layer = {
-      ...makeLayer("media", project.layers.length + 1),
+      ...makeLayer(effect, project.layers.length + 1),
       name,
       kind: "media" as Layer["kind"],
-      effect: "media",
+      effect,
       mediaType: media.type,
       mediaSrc: media.src,
       mediaFrames: media.frames,
@@ -375,7 +377,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     if (uiTimeRef.current >= layer.startTime + layer.duration) doSeek(layer.startTime);
   }, [commit, doSeek, project.fps, project.layers.length]);
 
-  const importMedia = useCallback(async (file: File, onStatus: (message: string) => void) => {
+  const importMedia = useCallback(async (file: File, onStatus: (message: string) => void, effect: "media" | "character-video" = "media") => {
     const { cols, rows } = project.hardware;
     const name = file.name.toLowerCase();
     let media: ImportedMedia;
@@ -385,16 +387,36 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
       media = await importSfx(file, cols, rows, onStatus);
     } else if (name.endsWith(".gif") || file.type === "image/gif") {
       media = await importGif(file, cols, rows, onStatus);
+    } else if (name.endsWith(".avi")) {
+      const objectUrl = URL.createObjectURL(file);
+      try { media = await importAviUrl(objectUrl, cols, rows, onStatus); }
+      finally { URL.revokeObjectURL(objectUrl); }
     } else if (file.type.startsWith("video/")) {
       media = await importVideo(file, cols, rows, onStatus);
     } else {
       media = await importImageFile(file);
     }
-    addMedia(media, file.name.replace(/\.[^.]+$/, ""));
-  }, [addMedia, map, project.duration, project.fps, project.hardware]);
+    addMedia(media, file.name.replace(/\.[^.]+$/, ""), effect);
+  }, [addMedia, project.duration, project.fps, project.hardware]);
 
+  // Asset library handoff: load the clip the user chose on /library once.
+  useEffect(() => {
+    if (libraryLoadedRef.current) return;
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem("pixleled_library_asset"); sessionStorage.removeItem("pixleled_library_asset"); } catch { return; }
+    if (!raw) return;
+    libraryLoadedRef.current = true;
+    try {
+      const asset = JSON.parse(raw) as { url: string; title: string };
+      void importAviUrl(asset.url, project.hardware.cols, project.hardware.rows)
+        .then((media) => addMedia(media, asset.title.replace(/\.[^.]+$/, ""), "character-video"))
+        .catch(() => { /* offline or unsupported AVI: library download remains available */ });
+    } catch { /* malformed handoff */ }
+    // Handoff is one-shot; project hardware is already resolved on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-const addKeyframe = useCallback(() => {
+  const addKeyframe = useCallback(() => {
     if (!selected) return;
     patchLayer(selected.id, {
       keyframes: [...selected.keyframes, {
