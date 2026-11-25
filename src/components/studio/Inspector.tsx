@@ -235,6 +235,34 @@ export default function Inspector(p: Props) {
               </section>
             ) : null}
 
+            {l.effect === "media" && l.mediaSrc ? (
+              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+                <div className="label">Chroma key & matrix preprocessing</div>
+                <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                  <input type="checkbox" checked={l.mediaChromaEnabled ?? false} onChange={(e) => p.onLayer({ mediaChromaEnabled: e.target.checked })} />
+                  Enable chroma key (background removal)
+                </label>
+                {l.mediaChromaEnabled && (
+                  <>
+                    <label className="block">
+                      <div className="mb-1 label">Key color</div>
+                      <input type="color" className="h-7 w-12 cursor-pointer rounded border border-zinc-700 bg-transparent" value={l.mediaChromaColor ?? "#00ff00"} onChange={(e) => p.onLayer({ mediaChromaColor: e.target.value })} />
+                    </label>
+                    {slider("Tolerance", l.mediaChromaTolerance ?? 0.35, 0, 1, 0.01, (v) => p.onLayer({ mediaChromaTolerance: v }))}
+                  </>
+                )}
+                {slider("Brightness", l.mediaBrightness ?? 100, 0, 200, 1, (v) => p.onLayer({ mediaBrightness: v }), "%")}
+                {slider("Contrast", l.mediaContrast ?? 100, 0, 200, 1, (v) => p.onLayer({ mediaContrast: v }), "%")}
+                {slider("Saturation", l.mediaSaturation ?? 100, 0, 200, 1, (v) => p.onLayer({ mediaSaturation: v }), "%")}
+                {slider("Gamma", l.mediaGamma ?? 1, 0.1, 3, 0.1, (v) => p.onLayer({ mediaGamma: v }))}
+                {slider("Threshold", l.mediaThreshold ?? 0, 0, 255, 1, (v) => p.onLayer({ mediaThreshold: v }))}
+                <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                  <input type="checkbox" checked={l.mediaSilhouette ?? false} onChange={(e) => p.onLayer({ mediaSilhouette: e.target.checked })} />
+                  Silhouette mode (threshold → black/white)
+                </label>
+              </section>
+            ) : null}
+
             {l.effect === "media" && l.mediaFrames ? (
               <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
                 <div className="label">Media playback</div>

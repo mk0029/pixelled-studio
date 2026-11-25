@@ -1,12 +1,11 @@
 import type { Project } from "@/types/project";
-import type { ControllerBinaryProfile } from "@/engine/codecs/ledCodec";
+
 
 const DB_NAME = "tohran-led-studio";
 const STORE = "projects";
 const LIBRARY = "library";
 const MEDIA = "media";
 const LED_FRAMES = "ledFrames";
-const LED_PROFILES = "ledProfiles";
 const KEY = "current";
 const DB_VERSION = 5;
 
@@ -19,7 +18,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(LIBRARY)) db.createObjectStore(LIBRARY);
       if (!db.objectStoreNames.contains(MEDIA)) db.createObjectStore(MEDIA);
 if (!db.objectStoreNames.contains(LED_FRAMES)) db.createObjectStore(LED_FRAMES);
-if (!db.objectStoreNames.contains(LED_PROFILES)) db.createObjectStore(LED_PROFILES);
+
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -149,21 +148,4 @@ export async function listLedFrameChunks(): Promise<string[]> {
   }));
 }
 
-// Probed controller profiles. Stored in IndexedDB so they survive reloads.
-export async function saveLedProfile(profile: ControllerBinaryProfile): Promise<void> {
-  if (!profile.id?.trim()) throw new Error("Profile needs an id");
-  await write(LED_PROFILES, profile, profile.id);
-}
 
-export async function listLedProfiles(): Promise<ControllerBinaryProfile[]> {
-  return tx<ControllerBinaryProfile[]>(LED_PROFILES, "readonly", (s) => s.getAll()).then((v) => v ?? []);
-}
-
-export async function deleteLedProfile(id: string): Promise<void> {
-  await openDb().then((db) => new Promise<void>((resolve, reject) => {
-    const t = db.transaction(LED_PROFILES, "readwrite");
-    t.objectStore(LED_PROFILES).delete(id);
-    t.oncomplete = () => resolve();
-    t.onerror = () => reject(t.error);
-  }));
-}

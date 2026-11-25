@@ -198,7 +198,17 @@ export interface Layer {
   textOutline?: boolean;
   textShadow?: boolean;
   // Media layer fields
-  mediaType?: "image" | "video" | "gif" | "swf" | "led" | "sfx";
+  mediaType?: "image" | "video" | "gif" | "webm" | "swf" | "sfx";
+  // Characters / real-world video preprocessing
+  mediaChromaEnabled?: boolean;
+  mediaChromaColor?: string;
+  mediaChromaTolerance?: number;
+  mediaBrightness?: number;
+  mediaContrast?: number;
+  mediaSaturation?: number;
+  mediaGamma?: number;
+  mediaThreshold?: number;
+  mediaSilhouette?: boolean;
   mediaSpeed?: number;
   mediaSmoothing?: boolean;
   // Math effect id (for mathCatalog effects) stored in effect already
@@ -380,7 +390,15 @@ export function normalizeProject(project: Project): Project {
       mediaChannelSwap: l.mediaChannelSwap ?? false,
       mediaTrimBlack: l.mediaTrimBlack ?? true,
       mediaTrimThreshold: l.mediaTrimThreshold ?? 15,
-      mediaCropX: l.mediaCropX ?? 0,
+      mediaChromaEnabled: l.mediaChromaEnabled ?? false,
+      mediaChromaColor: l.mediaChromaColor ?? "#00ff00",
+      mediaChromaTolerance: l.mediaChromaTolerance ?? 0.35,
+      mediaBrightness: l.mediaBrightness ?? 100,
+      mediaContrast: l.mediaContrast ?? 100,
+      mediaSaturation: l.mediaSaturation ?? 100,
+      mediaGamma: l.mediaGamma ?? 1,
+      mediaThreshold: l.mediaThreshold ?? 0,
+      mediaSilhouette: l.mediaSilhouette ?? false,      mediaCropX: l.mediaCropX ?? 0,
       mediaCropY: l.mediaCropY ?? 0,
       mediaCropW: l.mediaCropW ?? 0,
       mediaCropH: l.mediaCropH ?? 0,

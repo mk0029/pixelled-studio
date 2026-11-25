@@ -1,13 +1,11 @@
 import type { WiringMap } from "./wiringMapper";
 import { parseSfx } from "./sfxParser";
-import { decodeLedBuffer } from "./codecs/ledDecoder";
-import { decodeLedBuffer as decodeWithProfile, type ControllerBinaryProfile } from "./codecs/ledCodec";
 
 export interface ImportedMedia {
   src: string;
   frames: number;
   fps: number;
-  type: "image" | "video" | "gif" | "swf" | "led" | "sfx";
+  type: "image" | "video" | "gif" | "webm" | "swf" | "sfx";
   srcW?: number;
   srcH?: number;
   cropX?: number;
@@ -52,6 +50,40 @@ export function importImageFile(file: File): Promise<ImportedMedia> {
     reader.onerror = () => reject(new Error("Could not read the image"));
     reader.readAsDataURL(file);
   });
+}
+
+/** Animated video import: sample frames from an mp4/webm clip. */
+export async function importVideo(file: File, cols: number, rows: number, onStatus?: ImportStatus): Promise<ImportedMedia> {
+  const url = URL.createObjectURL(file);
+  try {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error("Could not decode the video"));
+      setTimeout(() => reject(new Error("Video decode timed out")), 10000);
+    });
+    const duration = Math.max(0.2, Math.min(video.duration || 1, 15));
+    const fps = 12;
+    const total = Math.max(1, Math.min(MAX_FRAMES, Math.floor(duration * fps)));
+    const step = duration / total;
+    const { canvas, ctx } = canvas2d(cols, rows);
+    const frames: ImageData[] = [];
+    for (let i = 0; i < total; i++) {
+      onStatus?.(`Sampling video ${i + 1}/${total}…`);
+      video.currentTime = i * step;
+      await new Promise<void>((resolve) => { video.onseeked = () => resolve(); setTimeout(resolve, 500); });
+      ctx.clearRect(0, 0, cols, rows);
+      ctx.drawImage(video, 0, 0, cols, rows);
+      frames.push(ctx.getImageData(0, 0, cols, rows));
+    }
+    return { src: packFrames(frames, cols, rows), frames: frames.length, fps, type: "video", srcW: cols, srcH: rows };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /** Video import contributes one still frame; full video sampling is out of scope. */
@@ -294,157 +326,6 @@ export async function importSwf(
   }
 }
 
-async function ledFiles(buffer: ArrayBuffer): Promise<{ port: number; data: Uint8Array }[]> {
-  const bytes = new Uint8Array(buffer);
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    const JSZip = (await import("jszip")).default;
-    const zip = await JSZip.loadAsync(buffer);
-    const files: { port: number; data: Uint8Array }[] = [];
-    for (const [name, entry] of Object.entries(zip.files)) {
-      if (entry.dir || !name.toLowerCase().endsWith(".led")) continue;
-      const port = Number(name.match(/(\d+)\.led$/i)?.[1] ?? 1);
-      files.push({ port, data: await entry.async("uint8array") });
-    }
-    if (!files.length) throw new Error("The ZIP does not contain any .led files");
-    return files.sort((a, b) => a.port - b.port);
-  }
-  return [{ port: 1, data: bytes }];
-}
-
-/**
- * Reads the app's rzbv001 .led container back into grid frames.
- * Payload mapping matches this app's linear RGB writer; LedEdit's bit-packed
- * payload is not confirmed and may decode incorrectly.
- */
-export async function importLed(
-  buffer: ArrayBuffer,
-  map: WiringMap,
-  cols: number,
-  rows: number,
-  fps: number,
-  onStatus?: ImportStatus,
-  options?: Record<string, unknown>,
-): Promise<ImportedMedia> {
-  const bytes = new Uint8Array(buffer);
-  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
-
-  let allFrames: Uint8Array[] = [];
-  let decodedFps = fps;
-
-  if (isZip) {
-    onStatus?.("Extracting .led files…");
-    const JSZip = (await import("jszip")).default;
-    const zip = await JSZip.loadAsync(buffer);
-    const entries: { port: number; data: Uint8Array }[] = [];
-    for (const [name, entry] of Object.entries(zip.files)) {
-      if (entry.dir || !name.toLowerCase().endsWith(".led")) continue;
-      const port = Number(name.match(/(\\d+)\\.led$/i)?.[1] ?? entries.length + 1);
-      entries.push({ port, data: await entry.async("uint8array") });
-    }
-    if (!entries.length) throw new Error("The ZIP does not contain any .led files");
-    entries.sort((a, b) => a.port - b.port);
-
-    // Ownership map: canvas index -> port.
-    const portOfPixel = new Map<number, number>();
-    const portPixels = new Map<number, typeof map.pixels>();
-    for (const p of map.pixels) {
-      portOfPixel.set(p.y * cols + p.x, p.port);
-      if (!portPixels.has(p.port)) portPixels.set(p.port, []);
-      portPixels.get(p.port)!.push(p);
-    }
-
-    const decodedByPort = new Map<number, ReturnType<typeof decodeLedBuffer>>();
-    for (const entry of entries) {
-      onStatus?.(`Decoding port ${entry.port}…`);
-      const pp = portPixels.get(entry.port) ?? [];
-      const synthMap = { pixels: pp, ports: [], zLinks: [], warnings: [], totalPixels: pp.length } as unknown as WiringMap;
-      const res = decodeLedBuffer(entry.data.buffer.slice(entry.data.byteOffset, entry.data.byteOffset + entry.data.byteLength) as ArrayBuffer, {
-        wiringMap: synthMap,
-        pixelCount: pp.length,
-        cols,
-        rows,
-        channels: 3,
-        fps,
-        targetFps: fps,
-        ...(options ?? {}),
-      });
-      if (!res.ok || !res.frames?.length) throw new Error(res.error || `No frames in port ${entry.port}`);
-      decodedByPort.set(entry.port, res);
-      decodedFps = res.fps ?? decodedFps;
-    }
-
-    const first = decodedByPort.values().next().value!;
-    const frameCount = first.frames!.length;
-    for (let f = 0; f < frameCount; f++) {
-      onStatus?.(`Decoding .led frame ${f + 1}/${frameCount}…`);
-      const combined = new Uint8Array(cols * rows * 4);
-      for (let i = 0; i < cols * rows; i++) combined[i * 4 + 3] = 255;
-      for (const [port, res] of decodedByPort) {
-        const frame = res.frames![Math.min(f, res.frames!.length - 1)];
-        // Copy pixels owned by this port from the decoded frame.
-        for (let i = 0; i < cols * rows; i++) {
-          if (portOfPixel.get(i) !== port) continue;
-          const o = i * 4;
-          combined[o] = frame[o];
-          combined[o + 1] = frame[o + 1];
-          combined[o + 2] = frame[o + 2];
-          combined[o + 3] = frame[o + 3] || 255;
-        }
-      }
-      allFrames.push(combined);
-      if (allFrames.length % 4 === 0) await new Promise((r) => setTimeout(r, 0));
-    }
-  } else {
-    onStatus?.("Decoding .led…");
-    const profile = options?.profile as ControllerBinaryProfile | undefined;
-    const decoded = profile
-      ? decodeWithProfile(new Uint8Array(buffer), { profile, width: Number(options?.width ?? cols), height: Number(options?.height ?? rows), fps })
-      : decodeLedBuffer(buffer, {
-          wiringMap: map,
-          pixelCount: map.totalPixels,
-          cols,
-          rows,
-          channels: 3,
-          fps,
-          targetFps: fps,
-          ...(options ?? {}),
-        });
-    if (!decoded.ok || !decoded.frames?.length) {
-      throw new Error(("error" in decoded && decoded.error) || "No .led frames could be decoded");
-    }
-    allFrames = decoded.frames;
-    decodedFps = decoded.fps ?? fps;
-  }
-
-  if (!allFrames.length) throw new Error("No .led frames could be decoded");
-
-  const step = Math.max(1, Math.ceil(allFrames.length / MAX_FRAMES));
-  const indices: number[] = [];
-  for (let i = 0; i < allFrames.length && indices.length < MAX_FRAMES; i += step) indices.push(i);
-
-  const frames: ImageData[] = [];
-  for (const idx of indices) {
-    onStatus?.(`Decoding .led frame ${frames.length + 1}/${indices.length}…`);
-    const buf = allFrames[idx];
-    const image = new ImageData(cols, rows);
-    for (let i = 0; i < cols * rows; i++) {
-      const o = i * 4;
-      image.data[o] = buf[o];
-      image.data[o + 1] = buf[o + 1];
-      image.data[o + 2] = buf[o + 2];
-      image.data[o + 3] = buf[o + 3] || 255;
-    }
-    frames.push(image);
-    if (frames.length % 4 === 0) await new Promise((r) => setTimeout(r, 0));
-  }
-  if (!frames.length) throw new Error("No .led frames could be decoded");
-  return {
-    src: packFrames(frames, cols, rows),
-    frames: frames.length,
-    fps: Math.round(clamp(decodedFps, 1, 60)),
-    type: "led",
-  };
-}
 
 export async function importSfx(file: File, cols: number, rows: number, onStatus?: ImportStatus): Promise<ImportedMedia> {
   onStatus?.("Parsing .sfx…");

@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { runExport, testFrame, type ExportFormat, type LedTestPattern } from "@/engine/exporters";
+import { runExport, type ExportFormat } from "@/engine/exporters";
 import { renderFrame } from "@/engine/compositor";
-import { loadLedRecordModel, RECOVERED_LED_COUNT } from "@/engine/codecs/ledRecorder";
-import { decodeTol, type TolProgram } from "@/engine/codecs/tolDecoder";
 import type { WiringMap } from "@/engine/wiringMapper";
 import type { Project } from "@/types/project";
 
@@ -29,30 +27,6 @@ const FORMATS: { id: ExportFormat; label: string; detail: string; warn?: string 
     warn: "A browser needs a Flash emulator such as Ruffle to play a downloaded SWF.",
   },
   { id: "bin", label: "Raw frames · .bin", detail: "RGB frames in physical wiring order and colour order, for custom drivers." },
-  {
-    id: "led",
-    label: "SD Card · .led (experimental)",
-    detail: "One 00_<port>.led per output, zipped, matching the PP_C.led convention.",
-    warn: "Pixel packing is unverified against a ground-truth export. Test on a spare SD card before a live show.",
-  },
-  {
-    id: "led-rec",
-    label: "Record show · .led (offline)",
-    detail: `Fast-forwards the whole timeline into one .led file. Uses the recovered ${RECOVERED_LED_COUNT}/600-LED byte map unless a calibration model is uploaded.`,
-    warn: "Colour transfer is identity and approximate. Test with the .led colour tester before a live show.",
-  },
-  {
-    id: "led-test",
-    label: "Colour Tester · .led (1 frame)",
-    detail: "Writes a solid colour or mixed pattern straight to the probed LED byte positions — no LedEdit needed.",
-    warn: `Byte map covers ${RECOVERED_LED_COUNT}/600 LEDs directly; the rest repeat the first recovered LEDs until re-probed.`,
-  },
-  {
-    id: "tol-to-led",
-    label: "TOL → SD Card · .led",
-    detail: "Reads raw RGB frames from a LedEdit .tol and writes them through the recovered byte map — no LedEdit recording needed.",
-    warn: `Assumes .tol rows match the project and ${RECOVERED_LED_COUNT}/600 LEDs are mapped. Prove wiring/colour with one matching .tol + .led pair.`,
-  },
 ];
 
 const SCALES = [1, 2, 4, 8, 12, 16];
@@ -62,14 +36,6 @@ const hexToRgb = (hex: string): [number, number, number] => {
   return [parseInt(v.slice(0, 2), 16) || 0, parseInt(v.slice(2, 4), 16) || 0, parseInt(v.slice(4, 6), 16) || 0];
 };
 
-const TEST_PATTERNS: { id: LedTestPattern; label: string }[] = [
-  { id: "solid", label: "Solid" },
-  { id: "horizontal", label: "X gradient" },
-  { id: "vertical", label: "Y gradient" },
-  { id: "checker", label: "Checker" },
-  { id: "walk", label: "Single LED" },
-];
-
 export default function ExportModal(p: Props) {
   const [format, setFormat] = useState<ExportFormat>(p.initialFormat);
   const [scale, setScale] = useState(8);
@@ -78,15 +44,8 @@ export default function ExportModal(p: Props) {
   const [phase, setPhase] = useState("");
   const [progress, setProgress] = useState(0);
   const [previewHex, setPreviewHex] = useState("");
-  const [ledModelReady, setLedModelReady] = useState(false);
-  const [testPattern, setTestPattern] = useState<LedTestPattern>("solid");
-  const [testColor, setTestColor] = useState("#ff0000");
-  const [tolProgram, setTolProgram] = useState<TolProgram | null>(null);
-  const [tolName, setTolName] = useState("");
-  const [tolError, setTolError] = useState("");
   const [error, setError] = useState("");
   const previewRef = useRef<HTMLCanvasElement>(null);
-  const tolInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!p.open) return;
@@ -98,17 +57,9 @@ export default function ExportModal(p: Props) {
   }, [p.open, p.initialFormat]);
 
   useEffect(() => {
-    if (p.open) setLedModelReady(!!loadLedRecordModel());
-  }, [p.open]);
-
-  useEffect(() => {
     if (!p.open) return;
     const { cols, rows } = p.project.hardware;
-    const frame = format === "tol-to-led" && tolProgram?.frames[0]
-      ? tolProgram.frames[0]
-      : format === "led-test"
-        ? testFrame(testPattern, hexToRgb(testColor), cols, rows)
-        : renderFrame(p.project, 0, p.map, 0.5);
+    const frame = renderFrame(p.project, 0, p.map, 0.5);
     const canvas = previewRef.current;
     if (!canvas) return;
     canvas.width = cols;
@@ -124,7 +75,7 @@ export default function ExportModal(p: Props) {
     ctx.putImageData(img, 0, 0);
     const hex = Array.from(frame.slice(0, 48)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
     setPreviewHex(hex);
-  }, [p.open, p.project, p.map, format, testPattern, testColor, tolProgram]);
+  }, [p.open, p.project, p.map, format]);
 
   if (!p.open) return null;
 
@@ -140,10 +91,6 @@ export default function ExportModal(p: Props) {
     try {
       await runExport(p.project, p.map, format, {
         scale,
-        ledModel: format === "led-test" ? undefined : loadLedRecordModel() ?? undefined,
-        testPattern,
-        testColor: hexToRgb(testColor),
-        tolProgram: format === "tol-to-led" ? tolProgram ?? undefined : undefined,
         onProgress: (d, t, ph) => {
           setProgress(t ? d / t : 0);
           setPhase(ph);
@@ -204,65 +151,6 @@ export default function ExportModal(p: Props) {
             </div>
           )}
 
-          {format === "led-rec" && !ledModelReady && (
-            <div className="rounded border border-teal-500/30 bg-teal-500/[.08] px-2.5 py-2 text-[10px] text-teal-300">
-              Using the built-in recovered byte map ({RECOVERED_LED_COUNT}/600 LEDs). Upload a calibration model under Technician Tools to override it.
-            </div>
-          )}
-
-          {format === "led-test" && (
-            <div className="space-y-2 rounded border border-zinc-800 bg-zinc-900/40 p-2.5">
-              <div className="label">Test pattern</div>
-              <div className="flex flex-wrap gap-1">
-                {TEST_PATTERNS.map((p) => (
-                  <button key={p.id} disabled={busy} onClick={() => setTestPattern(p.id)}
-                    className={`chip ${testPattern === p.id ? "chip-active" : ""}`}>{p.label}</button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="label">Colour</span>
-                <input className="h-7 w-10 cursor-pointer rounded border border-zinc-700 bg-transparent" type="color"
-                  value={testColor} onChange={(e) => setTestColor(e.target.value)} disabled={busy} />
-                <code className="font-mono text-[10px] text-zinc-400">{testColor.toUpperCase()}</code>
-              </div>
-              <div className="text-[10px] leading-snug text-zinc-500">
-                Writes one frame to the probed byte positions. Flash to the SD card and compare against this preview.
-              </div>
-            </div>
-          )}
-
-          {format === "tol-to-led" && (
-            <div className="space-y-2 rounded border border-zinc-800 bg-zinc-900/40 p-2.5">
-              <input ref={tolInputRef} type="file" accept=".tol" hidden
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (!file) return;
-                  setTolError("");
-                  try {
-                    const program = decodeTol(new Uint8Array(await file.arrayBuffer()));
-                    if (program.dimA !== p.project.hardware.rows || program.dimB !== p.project.hardware.cols) {
-                      throw new Error(`TOL is ${program.dimB}×${program.dimA}; expected ${p.project.hardware.cols}×${p.project.hardware.rows}`);
-                    }
-                    setTolProgram(program);
-                    setTolName(file.name);
-                  } catch (err) {
-                    setTolProgram(null);
-                    setTolName("");
-                    setTolError(err instanceof Error ? err.message : "Invalid .tol file");
-                  }
-                }} />
-              <button className="btn" onClick={() => tolInputRef.current?.click()} disabled={busy}>Choose .tol</button>
-              <div className="font-mono text-[10px] text-zinc-400">
-                {tolProgram ? `${tolName} · ${tolProgram.frames.length} frames · ${tolProgram.dimB}×${tolProgram.dimA}` : "No .tol loaded"}
-              </div>
-              {tolError && <div className="text-[10px] text-red-300">{tolError}</div>}
-              <div className="text-[10px] leading-snug text-zinc-500">
-                Raw RGB frames are written through the recovered byte map. Prove wiring and colour with one matching export first.
-              </div>
-            </div>
-          )}
-
           {format === "avi-raw" && (
             <div className="rounded border border-teal-500/25 bg-teal-500/[.06] px-2.5 py-2 text-[10px] leading-snug text-teal-200/80">
               <div className="mb-1 font-semibold">LedEdit recording workflow</div>
@@ -304,7 +192,7 @@ export default function ExportModal(p: Props) {
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-zinc-800 px-4 py-3">
           <button className="btn" onClick={p.onClose} disabled={busy}>Close</button>
-          <button className="btn btn-primary" onClick={run} disabled={busy || (format === "tol-to-led" && !tolProgram)}>
+          <button className="btn btn-primary" onClick={run} disabled={busy}>
             {busy ? "Exporting…" : "Export"}
           </button>
         </div>

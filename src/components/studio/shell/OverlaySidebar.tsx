@@ -7,7 +7,7 @@ import LayoutsPanel from "../panels/LayoutsPanel";
 import LayersPanel from "../panels/LayersPanel";
 import TextPanel from "../panels/TextPanel";
 import AudioPanel from "../panels/AudioPanel";
-import TechnicianToolsPanel from "../panels/TechnicianToolsPanel";
+
 import CharacterSpritesPanel from "../panels/CharacterSpritesPanel";
 import type { Project } from "@/types/project";
 import { getController, getChipset } from "@/types/hardware";
@@ -46,7 +46,6 @@ interface Props {
   onDeleteProject: () => void;
   onSaveJson: () => void;
   onLoadJson: () => void;
-  onExportLed: () => void;
   onExportAvi: () => void;
   onFps: (fps: number) => void;
   onBrightness: (v: number) => void;
@@ -175,7 +174,7 @@ export default function OverlaySidebar(p: Props) {
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={p.onExportLed} className="btn flex-1">Export .led</button>
+            <button onClick={p.onExportAvi} className="btn flex-1">Export AVI</button>
             <button onClick={p.onOpenSettings} className="btn btn-icon" title="Studio settings"><Icon name="sliders" /></button>
           </div>
 
@@ -208,7 +207,7 @@ export default function OverlaySidebar(p: Props) {
         ) : p.activeTab === "audio" ? (
           <AudioPanel project={{ id: p.project.id, fps: p.project.fps, duration: p.project.duration }} />
         ) : p.activeTab === "tools" ? (
-          <TechnicianToolsPanel project={p.project} map={p.map} />
+          <div className="space-y-3 p-4 text-[11px] text-zinc-400">Technician tools removed in v2 (no .led converter). Use Export → AVI for LEDEdit.</div>
         ) : p.activeTab === "sprites" ? (
           <CharacterSpritesPanel project={p.project} onCommit={p.onCommit} onAdd={p.onAdd} />
         ) : (

@@ -13,13 +13,13 @@ import type { HardwareConfig } from "@/types/hardware";
 import { DEFAULT_HARDWARE } from "@/types/hardware";
 import CanvasViewport from "./CanvasViewport";
 import ExportModal from "./ExportModal";
-import LedImportModal from "./LedImportModal";
+
 import HardwareModal from "./HardwareModal";
 import Inspector from "./Inspector";
 import ProjectLauncherModal, { type NewProjectConfig } from "./ProjectLauncherModal";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ExportFormat } from "@/engine/exporters";
-import { importGif, importImageFile, importLed, importSfx, importSwf, importVideoStill, type ImportedMedia } from "@/engine/mediaImport";
+import { importGif, importImageFile, importSfx, importSwf, importVideo, type ImportedMedia } from "@/engine/mediaImport";
 import LeftDock from "./LeftDock";
 import OverlaySidebar, { type SidebarTabId } from "./shell/OverlaySidebar";
 import { migrateLocalStorageProjects } from "@/lib/db";import ResizeHandle from "./ResizeHandle";
@@ -75,8 +75,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   const [modal, setModal] = useState<{ open: boolean; isNew: boolean }>({ open: false, isNew: false });
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [exportModal, setExportModal] = useState<{ open: boolean; format: ExportFormat }>({ open: false, format: "zip" });
-const [ledImportOpen, setLedImportOpen] = useState(false);
-const [ledImportFile, setLedImportFile] = useState<File | null>(null);
+
   const zoomControlsRef = useRef<{ zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void } | null>(null);
   const [layout, setLayout] = useState(readLayout);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
@@ -367,25 +366,16 @@ const [ledImportFile, setLedImportFile] = useState<File | null>(null);
       media = await importSwf(file, cols, rows, project.duration, project.fps, onStatus);
     } else if (name.endsWith(".sfx")) {
       media = await importSfx(file, cols, rows, onStatus);
-    } else if (name.endsWith(".led") || name.endsWith(".zip")) {
-      setLedImportFile(file);
-      setLedImportOpen(true);
-      return;
     } else if (name.endsWith(".gif") || file.type === "image/gif") {
       media = await importGif(file, cols, rows, onStatus);
     } else if (file.type.startsWith("video/")) {
-      media = await importVideoStill(file, cols, rows);
+      media = await importVideo(file, cols, rows, onStatus);
     } else {
       media = await importImageFile(file);
     }
     addMedia(media, file.name.replace(/\.[^.]+$/, ""));
   }, [addMedia, map, project.duration, project.fps, project.hardware]);
 
-  const importLedFile = useCallback(async (file: File, options: Record<string, unknown>, onStatus?: (message: string) => void) => {
-  const { cols, rows } = project.hardware;
-  const media = await importLed(await file.arrayBuffer(), map, cols, rows, project.fps, onStatus, options);
-  addMedia(media, file.name.replace(/\.[^.]+$/, ""));
-}, [addMedia, map, project.fps, project.hardware]);
 
 const addKeyframe = useCallback(() => {
     if (!selected) return;
@@ -518,7 +508,7 @@ const addKeyframe = useCallback(() => {
       <TopBar
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        onExport={() => setExportModal({ open: true, format: "led-rec" })}
+        onExport={() => setExportModal({ open: true, format: "avi" })}
       />
       <input ref={importRef} type="file" accept="application/json,.json" hidden
         onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
@@ -536,8 +526,7 @@ const addKeyframe = useCallback(() => {
           onDeleteProject={deleteCurrentProjectRecord}
           onSaveJson={saveJson}
           onLoadJson={() => importRef.current?.click()}
-          onExportLed={() => setExportModal({ open: true, format: "led-rec" })}
-          onExportAvi={() => setExportModal({ open: true, format: "zip" })}
+          onExportAvi={() => setExportModal({ open: true, format: "avi" })}
           onFps={(fps) => commit((p) => ({ ...p, fps }))}
           onBrightness={(masterBrightness) => commit((p) => ({ ...p, masterBrightness }), "master:brightness")}
           onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo}
@@ -627,18 +616,6 @@ const addKeyframe = useCallback(() => {
             onClose={() => setExportModal((s) => ({ ...s, open: false }))} />
         )}
       </AnimatePresence>
-      {ledImportOpen && ledImportFile && (
-        <LedImportModal
-          open={ledImportOpen}
-          file={ledImportFile}
-          map={map}
-          cols={project.hardware.cols}
-          rows={project.hardware.rows}
-          fps={project.fps}
-          onClose={() => { setLedImportOpen(false); setLedImportFile(null); }}
-          onImport={async (f, opts) => { await importLedFile(f, opts); }}
-        />
-      )}
       <ProjectLauncherModal
         open={launcherOpen} allowClose={choiceRef.current}
         config={{ name: project.name, fps: project.fps, duration: project.duration, hardware: project.hardware }}

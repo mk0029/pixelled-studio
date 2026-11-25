@@ -181,6 +181,64 @@ export function sampleMedia(layer: Layer, cols: number, rows: number, time: numb
   }
 
   const out = new Uint8ClampedArray(c.getImageData(0, 0, cols, rows).data);
+
+  // Chroma key: drop background color.
+  if (layer.mediaChromaEnabled) {
+    const hex = (layer.mediaChromaColor || "#00ff00").replace("#", "");
+    const kr = parseInt(hex.slice(0, 2), 16) || 0;
+    const kg = parseInt(hex.slice(2, 4), 16) || 0;
+    const kb = parseInt(hex.slice(4, 6), 16) || 0;
+    const tol = Math.max(0, Math.min(1, layer.mediaChromaTolerance ?? 0.35));
+    const thr = tol * 441.67; // max euclidean distance ~441
+    for (let i = 0; i < cols * rows; i++) {
+      const q = i * 4;
+      const dr = out[q] - kr, dg = out[q + 1] - kg, db = out[q + 2] - kb;
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (dist <= thr) out[q + 3] = 0;
+    }
+  }
+
+  // Matrix preprocessing: brightness/contrast/saturation/gamma/threshold/silhouette.
+  const b = (layer.mediaBrightness ?? 100) / 100;
+  const ct = (layer.mediaContrast ?? 100) / 100;
+  const sat = (layer.mediaSaturation ?? 100) / 100;
+  const gamma = Math.max(0.1, layer.mediaGamma ?? 1);
+  const threshold = Math.max(0, Math.min(255, layer.mediaThreshold ?? 0));
+  const silhouette = layer.mediaSilhouette === true;
+  for (let i = 0; i < cols * rows; i++) {
+    const q = i * 4;
+    if (out[q + 3] === 0) continue;
+    let r = out[q], g = out[q + 1], bb = out[q + 2];
+    // brightness + contrast
+    r = (r - 128) * ct + 128 + (b - 1) * 128;
+    g = (g - 128) * ct + 128 + (b - 1) * 128;
+    bb = (bb - 128) * ct + 128 + (b - 1) * 128;
+    // saturation
+    const gray = 0.299 * r + 0.587 * g + 0.114 * bb;
+    r = gray + (r - gray) * sat;
+    g = gray + (g - gray) * sat;
+    bb = gray + (bb - gray) * sat;
+    // gamma
+    r = 255 * Math.pow(Math.max(0, Math.min(1, r / 255)), 1 / gamma);
+    g = 255 * Math.pow(Math.max(0, Math.min(1, g / 255)), 1 / gamma);
+    bb = 255 * Math.pow(Math.max(0, Math.min(1, bb / 255)), 1 / gamma);
+    // threshold / silhouette
+    if (threshold > 0 || silhouette) {
+      const lum = 0.299 * r + 0.587 * g + 0.114 * bb;
+      if (silhouette) {
+        const v = lum >= (threshold || 128) ? 255 : 0;
+        r = g = bb = v;
+      } else if (threshold > 0) {
+        const v = lum >= threshold ? 255 : 0;
+        // keep color but clamp? apply as mask
+        if (lum < threshold) out[q + 3] = 0;
+      }
+    }
+    out[q] = Math.max(0, Math.min(255, r));
+    out[q + 1] = Math.max(0, Math.min(255, g));
+    out[q + 2] = Math.max(0, Math.min(255, bb));
+  }
+
   if (!autoRotate) {
     entry.frames.set(key, out);
     if (entry.frames.size > 512) entry.frames.clear();
