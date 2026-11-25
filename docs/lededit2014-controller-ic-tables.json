@@ -1,0 +1,169 @@
+{
+  "schema": "lededit2014.controller-ic-tables/2",
+  "generated": "2026-11-23",
+  "summary": "LEDEdit stores a controller/IC selection as a MODEL-CHIP string. The full matrix is kept in an encrypted 8-byte-block record file (SET/set_xb.txt) that could not be decrypted. Only a few MODEL-CHIP strings and one special-driver list appear in plaintext, in .pxb projects, the user setting files, and the shipped satellite resources.",
+  "encryptedTable": {
+    "kind": "controller/IC lookup matrix",
+    "confidence": "high that this is the table; cipher inference medium",
+    "files": [
+      {
+        "path": "C:\\LED\\LEDEdit 2014 V2.45\\LedEdit 2014\\SET\\set_xb.txt",
+        "bytes": 33654,
+        "sha256": "10C6D4B7E52795F9077BA390851668B840D9281D2594611201B4DADB097E249A"
+      },
+      {
+        "path": "D:\\LEDEdit2014\\LedEdit 2014\\SET\\set_xb.txt",
+        "bytes": 33654,
+        "sha256": "10C6D4B7E52795F9077BA390851668B840D9281D2594611201B4DADB097E249A"
+      }
+    ],
+    "absentFrom": "C:\\LedEdit 2014",
+    "structure": {
+      "hexLines": 355,
+      "headerLines": 3,
+      "records": 352,
+      "distinctFirstBlockGroups": 36,
+      "blockBytes": 8,
+      "inference": "8-byte-block ECB-like cipher: identical first plaintext block yields identical first ciphertext block",
+      "decrypted": false,
+      "note": "single-byte-XOR and live-protocol-key tests on the first block produced no printable ASCII; model-to-ciphertext-group mapping is therefore unknown"
+    },
+    "companionFlags": {
+      "6803.txt": "1024",
+      "chip_info.txt": "true",
+      "chyong_set.txt": "0",
+      "dingzhi_enable.txt": "False",
+      "dingzhi_xx.txt": ""
+    }
+  },
+  "confirmedPairings": [
+    {
+      "model": "T-1000S",
+      "chip": "WS2811",
+      "string": "T-1000S-WS2811",
+      "confidence": "high",
+      "sources": [
+        "C:\\Users\\mkhic\\OneDrive\\Documents\\LedEdit_T_setting\\ttype_ss10.txt",
+        "C:\\Users\\mkhic\\OneDrive\\Desktop\\FROM EDIT\\project-1\\program.pxb line 21",
+        "C:\\Users\\mkhic\\OneDrive\\Desktop\\FROM EDIT\\project-1\\program_ReadMe.txt",
+        "C:\\Users\\mkhic\\OneDrive\\Documents\\Led1.pxb line 21",
+        "D:\\ashish\\dfkvjfndb.pxb line 21"
+      ]
+    },
+    {
+      "model": "T-1000S",
+      "chip": "TM1803,TM1804,TM1809,TM1812",
+      "string": "T-1000S-TM1803,1804,1809,1812",
+      "confidence": "high",
+      "sources": [
+        "C:\\Users\\mkhic\\OneDrive\\Desktop\\FROM EDIT\\nn.pxb line 21",
+        "C:\\Users\\mkhic\\OneDrive\\Desktop\\FROM EDIT\\p.pxb line 21"
+      ]
+    },
+    {
+      "model": "T-1000S",
+      "chip": "LPD6803",
+      "string": "T-1000S-LPD6803",
+      "confidence": "medium",
+      "sources": [
+        "runtime-unpacked System_Set form resource (dump artifact, not shipped bytes): label20.Text"
+      ]
+    }
+  ],
+  "specialDriverICs": [
+    {
+      "value": "SC16722/ZQL9712,74HC595,DM413,MBI5026",
+      "confidence": "high",
+      "sources": [
+        "runtime-unpacked System_Set form resource: label10.Text",
+        "C:\\LedEdit 2014\\zh-CN\\LedEdit.resources.dll @ 532991 contains SC16722/ZQL9712,DM314,MBI5026"
+      ],
+      "note": "shipped resource text spells the fourth part DM314; the dump label reads DM413"
+    }
+  ],
+  "userSavedRecords": {
+    "C:\\Users\\mkhic\\OneDrive\\Documents\\LedEdit_T_setting\\chyong_ttype_2013.txt": {
+      "encoding": "UTF-16LE with BOM",
+      "recordCount": 7,
+      "note": "5 of 7 records are exact lines from set_xb.txt (lines 4, 8, 198, 199, 221, 326); records span groups 073BA4E0, D9670B2A, 5E15859B"
+    },
+    "C:\\LedEdit 2014\\chyong_ttype.txt": {
+      "encoding": "UTF-16LE with BOM",
+      "recordCount": 1,
+      "note": "82BFBF0A... has no exact set_xb.txt match"
+    }
+  },
+  "projectFileFormat": {
+    "extension": ".pxb",
+    "modelChipLine": 21,
+    "encoding": "UTF-16LE, CRLF-delimited",
+    "exampleFields": {
+      "line11": "32",
+      "line12": "2048",
+      "line13": "20",
+      "line23": "170",
+      "line29": "15",
+      "lines33to35": "8/8/8"
+    }
+  },
+  "capacityCodes": [
+    {
+      "code": "0x6000",
+      "decimal": 24576,
+      "status": "standard 3072-byte frames",
+      "samples": [
+        { "declaredFrames": 1203, "mask": "0x78", "fileBytes": 3716608 },
+        { "declaredFrames": 1770, "mask": "0x49", "fileBytes": 5458432 },
+        { "declaredFrames": 1974, "mask": "0x59", "fileBytes": 6085120 },
+        { "declaredFrames": 360, "mask": "0xe3", "fileBytes": 1126912 }
+      ]
+    },
+    { "code": "0xC000", "decimal": 49152, "declaredFrames": 10007, "physicalFrames": 20014, "fileBytes": 61504000, "status": "double-width variant, rejected by codec" },
+    { "code": "0x3000", "decimal": 12288, "fileBytes": 22528, "status": "older 1536-byte frame layout, rejected by codec" },
+    { "code": "0x0400", "decimal": 1024, "status": "seen in header, meaning unresolved" }
+  ],
+  "registryMirror": {
+    "status": "unverified; NOT extracted from LedEdit and not present in any scanned plaintext",
+    "source": "src/config/hardware/registry.ts",
+    "note": "T-4000, T-8000A, T-8000AC, K-1000C, K-8000C, UCS1903, SM16703, SK6812, DMX512 and WS2812B were not found in plaintext anywhere scanned; they are presumably inside the encrypted set_xb.txt.",
+    "controllers": [
+      { "id": "T-1000S", "family": "T-Series · SD Offline", "ports": 1, "pixelsPerPort": 2048, "maxPixels": 2048, "link": "SD Card", "fps": 30 },
+      { "id": "T-4000", "family": "T-Series · SD Offline", "ports": 4, "pixelsPerPort": 1024, "maxPixels": 4096, "link": "SD Card", "fps": 30 },
+      { "id": "T-8000A", "family": "T-Series · SD Offline", "ports": 8, "pixelsPerPort": 1024, "maxPixels": 8192, "link": "SD Card", "fps": 30 },
+      { "id": "T-8000AC", "family": "T-Series · SD Offline", "ports": 8, "pixelsPerPort": 1024, "maxPixels": 8192, "link": "SD Card", "fps": 60 },
+      { "id": "T-300K", "family": "T-Series · SD Offline", "ports": 8, "pixelsPerPort": 2048, "maxPixels": 16384, "link": "SD / Ethernet", "fps": 30 },
+      { "id": "T-500K", "family": "T-Series · SD Offline", "ports": 8, "pixelsPerPort": 2048, "maxPixels": 16384, "link": "SD / Ethernet", "fps": 30 },
+      { "id": "K-1000C", "family": "K-Series · Advanced", "ports": 1, "pixelsPerPort": 2048, "maxPixels": 2048, "link": "SD / Ethernet", "fps": 30 },
+      { "id": "K-8000C", "family": "K-Series · Advanced", "ports": 8, "pixelsPerPort": 1024, "maxPixels": 8192, "link": "SD / Ethernet", "fps": 30 },
+      { "id": "H801TC", "family": "H-Series", "ports": 2, "pixelsPerPort": 16384, "maxPixels": 32768, "link": "Art-Net / DMX", "fps": 60 },
+      { "id": "H802RA", "family": "H-Series", "ports": 2, "pixelsPerPort": 16384, "maxPixels": 32768, "link": "Art-Net / DMX", "fps": 60 },
+      { "id": "ESP8266-WLED", "family": "H-Series", "ports": 8, "pixelsPerPort": 2048, "maxPixels": 16384, "link": "WiFi / SPI", "fps": 60 },
+      { "id": "ESP32-WLED", "family": "H-Series", "ports": 8, "pixelsPerPort": 2048, "maxPixels": 16384, "link": "WiFi / SPI", "fps": 60 },
+      { "id": "ARTNET-NODE", "family": "H-Series", "ports": 8, "pixelsPerPort": 16384, "maxPixels": 131072, "link": "Art-Net / sACN", "fps": 60 },
+      { "id": "ARELAB-800", "family": "H-Series", "ports": 1, "pixelsPerPort": 800, "maxPixels": 800, "link": "SD Card", "fps": 30 },
+      { "id": "ARELAB-1800", "family": "H-Series", "ports": 1, "pixelsPerPort": 1800, "maxPixels": 1800, "link": "SD Card", "fps": 30 },
+      { "id": "ARELAB-5000", "family": "H-Series", "ports": 1, "pixelsPerPort": 5000, "maxPixels": 5000, "link": "SD Card", "fps": 30 },
+      { "id": "ARELAB-BELT-S", "family": "H-Series", "ports": 1, "pixelsPerPort": 2048, "maxPixels": 2048, "link": "SD Card", "fps": 30 },
+      { "id": "KOSHI", "family": "H-Series", "ports": 4, "pixelsPerPort": 2048, "maxPixels": 8192, "link": "SD Card", "fps": 30 },
+      { "id": "HUIDU-HD2020", "family": "H-Series", "ports": 1, "pixelsPerPort": 2048, "maxPixels": 2048, "link": "SD Card", "fps": 30 }
+    ],
+    "chipsets": [
+      { "id": "WS2811", "channels": 3, "protocol": "800 kHz", "confirmed": true },
+      { "id": "WS2812B", "channels": 3, "protocol": "800 kHz", "confirmed": false },
+      { "id": "WS2813", "channels": 3, "protocol": "800 kHz", "confirmed": false },
+      { "id": "WS2815", "channels": 3, "protocol": "800 kHz", "confirmed": false },
+      { "id": "UCS1903", "channels": 3, "protocol": "800 kHz", "confirmed": false },
+      { "id": "TM1804", "channels": 3, "protocol": "800 kHz", "confirmed": true },
+      { "id": "TM1812", "channels": 12, "protocol": "800 kHz", "confirmed": true },
+      { "id": "SM16703", "channels": 3, "protocol": "800 kHz", "confirmed": false },
+      { "id": "SK6812", "channels": 4, "protocol": "800 kHz", "confirmed": false },
+      { "id": "TM1814", "channels": 4, "protocol": "800 kHz", "confirmed": false },
+      { "id": "WS2801", "channels": 3, "protocol": "SPI", "confirmed": false },
+      { "id": "LPD6803", "channels": 3, "protocol": "SPI", "confirmed": true },
+      { "id": "APA102", "channels": 3, "protocol": "SPI", "confirmed": false },
+      { "id": "UCS512", "channels": 3, "protocol": "DMX512", "confirmed": false },
+      { "id": "TM512", "channels": 3, "protocol": "DMX512", "confirmed": false },
+      { "id": "DMX512", "channels": 3, "protocol": "250 kbps", "confirmed": false }
+    ]
+  }
+}

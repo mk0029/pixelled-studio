@@ -1,21 +1,38 @@
 import { renderFrame } from "./compositor";
 import { preloadMedia } from "./mediaRenderer";
 import { exportAviUncompressed } from "./aviEncoder";
+import { buildFseqBytes } from "./codecs/fseq";
+import {
+  buildLedProgram, createRecoveredByteMapModel, ledFrameFromRgb, type LedRecordModel,
+} from "./codecs/ledRecorder";
+import { HEADER_SIZE, FRAME_SIZE, TRAILER_SIZE } from "./codecs/ledEdit2014Codec";
+import type { TolProgram } from "./codecs/tolDecoder";
 import type { WiringMap } from "./wiringMapper";
+import { effectiveDuration } from "@/types/project";
 import type { Project } from "@/types/project";
 
-export type ExportFormat = "zip" | "avi" | "avi-raw" | "gif" | "swf" | "led" | "bin";
+export type ExportFormat = "zip" | "avi" | "avi-raw" | "fseq" | "gif" | "swf" | "led" | "led-rec" | "led-test" | "tol-to-led" | "bin";
+
+export type LedTestPattern = "solid" | "horizontal" | "vertical" | "checker" | "walk";
 
 export interface ExportOptions {
   /** Pixels per LED in raster exports. */
   scale: number;
   onProgress?: (done: number, total: number, phase: string) => void;
+  /** Solid-colour calibration model used by the offline LED recorder. */
+  ledModel?: LedRecordModel;
+  /** Synthetic pattern written by the .led byte-map tester. */
+  testPattern?: LedTestPattern;
+  /** Base colour for the tester pattern. */
+  testColor?: [number, number, number];
+  /** Decoded .tol frames used by the TOL-to-LED converter. */
+  tolProgram?: TolProgram;
 }
 
 /** Audio-reactive layers render at a fixed neutral level offline. */
 const OFFLINE_AUDIO = 0.5;
 
-const frameCount = (p: Project) => Math.max(1, Math.round(p.duration * Math.max(1, p.fps)));
+const frameCount = (p: Project) => Math.max(1, Math.round(effectiveDuration(p) * Math.max(1, p.fps)));
 const safeName = (name: string) => name.replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "") || "show";
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -112,7 +129,7 @@ export async function exportFrameZip(project: Project, map: WiringMap, opts: Exp
         cols,
         rows,
         fps: project.fps,
-        duration: project.duration,
+        duration: effectiveDuration(project),
         frameCount: total,
         controller: project.hardware.controllerId,
         chipset: project.hardware.chipsetId,
@@ -240,10 +257,14 @@ export async function exportAvi(project: Project, map: WiringMap, opts: ExportOp
  * Experimental `.led` export: one SD-card program file per port.
  * Container layout is taken from the reverse-engineering notes (512-byte header,
  * frame count big-endian at 0x0C, 6-sector frames, 40-sector zero trailer,
- * per-export offset byte). Pixel packing uses 1024 LEDs × RGB at 8 bits/LED,
- * which is the simplest reading of the observed 3072-byte frame.
- * shortcut: pixel→byte mapping is unverified against a one-pixel ground-truth export,
- * upgrade once such a sample is diffed.
+ * per-export mask byte). Pixel packing uses a variable LED count × RGB 8-bit,
+ * which does NOT match verified LEDEdit 2014 files: those store 3,072 bytes per
+ * frame (2,048 interleaved RGB data bytes + 1,024 constant mask bytes) and need
+ * a known-good header/mask template. Use engine/codecs/ledEdit2014Codec.ts's
+ * `encodeLedEdit2014FromPixels` for a byte-exact writer. Do not treat this
+ * output as byte-compatible with LedEdit.
+ * shortcut: no template-header picker or physical wiring map yet; upgrade once
+ * a one-pixel ground-truth export pins the IC channel order.
  */
 export async function exportLed(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
@@ -346,6 +367,25 @@ export async function exportBin(project: Project, map: WiringMap, opts: ExportOp
     if (i % 4 === 3) await tick();
   }
   download(new Blob([file], { type: "application/octet-stream" }), `${safeName(project.name)}.bin`);
+}
+
+/** FSEQ v2 uncompressed sequence: one channel byte per LED channel, in physical wiring order. */
+export async function exportFseq(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+  await preloadMedia(project);
+  const { cols, colorOrder, chipsetId } = project.hardware;
+  const channels = chipsetId === "SK6812" ? 4 : 3;
+  const total = frameCount(project);
+  const fps = Math.max(1, Math.round(project.fps));
+  const frames: Uint8Array[] = [];
+
+  for (let i = 0; i < total; i++) {
+    const frame = renderFrame(project, i / fps, map, OFFLINE_AUDIO);
+    frames.push(physicalBytes(frame, map, cols, colorOrder, channels));
+    opts.onProgress?.(i + 1, total, "fseq");
+    if (i % 4 === 3) await tick();
+  }
+  const bytes = buildFseqBytes(frames, Math.max(1, map.pixels.length * channels), fps);
+  download(new Blob([bytes], { type: "application/octet-stream" }), `${safeName(project.name)}.fseq`);
 }
 
 /** Animated GIF at one output pixel per LED (times the chosen scale). */
@@ -506,14 +546,100 @@ export async function exportSwf(project: Project, map: WiringMap, opts: ExportOp
   );
 }
 
+/** Offline LED recorder: render every frame as fast as possible and write .led. */
+async function exportLedRecording(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+  const model = opts.ledModel ?? createRecoveredByteMapModel();
+  await preloadMedia(project);
+  const total = Math.min(0xffff, frameCount(project));
+  const pixels = project.hardware.cols * project.hardware.rows;
+  const bytes = new Uint8Array(HEADER_SIZE + total * FRAME_SIZE + TRAILER_SIZE);
+  bytes.set(model.header, 0);
+  bytes.set(model.trailer, bytes.length - TRAILER_SIZE);
+  bytes[0x0c] = (total >> 8) & 0xff;
+  bytes[0x0d] = total & 0xff;
+  for (let i = 0; i < total; i++) {
+    const rgb = renderFrame(project, i / project.fps, map, OFFLINE_AUDIO);
+    bytes.set(ledFrameFromRgb(rgb, model, pixels), HEADER_SIZE + i * FRAME_SIZE);
+    opts.onProgress?.(i + 1, total, "led-rec");
+    if (i % 8 === 7) await tick();
+  }
+  download(
+    new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: "application/octet-stream" }),
+    `${safeName(project.name)}.led`,
+  );
+}
+
+/** One synthetic test frame written through the recovered byte map. */
+export function testFrame(pattern: LedTestPattern, color: [number, number, number], cols: number, rows: number): Uint8ClampedArray {
+  const rgb = new Uint8ClampedArray(cols * rows * 3);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const p = (y * cols + x) * 3;
+      let c = color;
+      if (pattern === "horizontal") c = [Math.round(color[0] * x / Math.max(1, cols - 1)), Math.round(color[1] * x / Math.max(1, cols - 1)), Math.round(color[2] * x / Math.max(1, cols - 1))];
+      if (pattern === "vertical") c = [Math.round(color[0] * y / Math.max(1, rows - 1)), Math.round(color[1] * y / Math.max(1, rows - 1)), Math.round(color[2] * y / Math.max(1, rows - 1))];
+      if (pattern === "checker" && (x + y) % 2 === 0) c = [0, 0, 0];
+      if (pattern === "walk")
+        c = y * cols + x === 0 ? color : [0, 0, 0];
+      rgb[p] = c[0]; rgb[p + 1] = c[1]; rgb[p + 2] = c[2];
+    }
+  }
+  return rgb;
+}
+
+/** Writes a colour test pattern to a .led file using the recovered byte map. */
+async function exportLedTest(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+  const model = createRecoveredByteMapModel();
+  const { cols, rows } = project.hardware;
+  const rgb = testFrame(opts.testPattern ?? "solid", opts.testColor ?? [255, 255, 255], cols, rows);
+  const frame = ledFrameFromRgb(rgb, model, cols * rows);
+  const bytes = buildLedProgram([frame], model);
+  opts.onProgress?.(1, 1, "led-test");
+  void map;
+  download(
+    new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: "application/octet-stream" }),
+    `${safeName(project.name)}_test_${opts.testPattern ?? "solid"}.led`,
+  );
+}
+
+/** Convert a decoded .tol program into a T-1000 .led file via the byte map. */
+async function exportTolToLed(project: Project, opts: ExportOptions): Promise<void> {
+  const tol = opts.tolProgram;
+  if (!tol) throw new Error("Upload a .tol file first");
+  const { cols, rows } = project.hardware;
+  if (tol.dimA !== rows || tol.dimB !== cols) {
+    throw new Error(`TOL is ${tol.dimB}×${tol.dimA}; expected ${cols}×${rows}`);
+  }
+  const model = opts.ledModel ?? createRecoveredByteMapModel();
+  const total = Math.min(0xffff, tol.frames.length);
+  const bytes = new Uint8Array(HEADER_SIZE + total * FRAME_SIZE + TRAILER_SIZE);
+  bytes.set(model.header, 0);
+  bytes.set(model.trailer, bytes.length - TRAILER_SIZE);
+  bytes[0x0c] = (total >> 8) & 0xff;
+  bytes[0x0d] = total & 0xff;
+  for (let i = 0; i < total; i++) {
+    bytes.set(ledFrameFromRgb(tol.frames[i], model, cols * rows), HEADER_SIZE + i * FRAME_SIZE);
+    opts.onProgress?.(i + 1, total, "tol-to-led");
+    if (i % 8 === 7) await tick();
+  }
+  download(
+    new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: "application/octet-stream" }),
+    `${safeName(project.name)}_from_tol.led`,
+  );
+}
+
 export function runExport(project: Project, map: WiringMap, format: ExportFormat, opts: ExportOptions): Promise<void> {
   switch (format) {
     case "zip": return exportFrameZip(project, map, opts);
     case "avi": return exportAvi(project, map, opts);
     case "avi-raw": return exportAviUncompressed(project, map, opts);
+    case "fseq": return exportFseq(project, map, opts);
     case "gif": return exportGif(project, map, opts);
     case "swf": return exportSwf(project, map, opts);
     case "led": return exportLed(project, map, opts);
+    case "led-rec": return exportLedRecording(project, map, opts);
+    case "led-test": return exportLedTest(project, map, opts);
+    case "tol-to-led": return exportTolToLed(project, opts);
     case "bin": return exportBin(project, map, opts);
   }
 }

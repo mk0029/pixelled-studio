@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/sync-sanity-effects.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/copy-ruffle.mjs",
+    "sync:effects": "node scripts/sync-sanity-effects.mjs",
+    "prebuild": "node scripts/sync-sanity-effects.mjs && node scripts/copy-ruffle.mjs",
     "build": "next build && node scripts/generate-sw-assets.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit"

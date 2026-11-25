@@ -7,12 +7,13 @@ import { type Preset } from "@/engine/presetLibrary";
 import { deleteSavedProject, loadProject, openSavedProject, readAutosave, saveProjectRecord } from "@/lib/projectStore";
 import { deleteCurrentProject } from "@/lib/db";
 import { useProjectHistory } from "@/lib/history";
-import { clampLayerTiming, defaultProject, EFFECTS, makeLayer, normalizeProject, type EffectId, type Layer, type Project } from "@/types/project";
+import { clampLayerTiming, defaultProject, EFFECTS, effectiveDuration, makeLayer, normalizeProject, type EffectId, type Layer, type Project } from "@/types/project";
 import { swfFileFor, isOnline } from "@/lib/swfEffects";
 import type { HardwareConfig } from "@/types/hardware";
 import { DEFAULT_HARDWARE } from "@/types/hardware";
 import CanvasViewport from "./CanvasViewport";
 import ExportModal from "./ExportModal";
+import LedImportModal from "./LedImportModal";
 import HardwareModal from "./HardwareModal";
 import Inspector from "./Inspector";
 import ProjectLauncherModal, { type NewProjectConfig } from "./ProjectLauncherModal";
@@ -20,7 +21,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { ExportFormat } from "@/engine/exporters";
 import { importGif, importImageFile, importLed, importSfx, importSwf, importVideoStill, type ImportedMedia } from "@/engine/mediaImport";
 import LeftDock from "./LeftDock";
-import ResizeHandle from "./ResizeHandle";
+import OverlaySidebar, { type SidebarTabId } from "./shell/OverlaySidebar";
+import { migrateLocalStorageProjects } from "@/lib/db";import ResizeHandle from "./ResizeHandle";
 import Timeline from "./Timeline";
 import TopBar from "./TopBar";
 import TransportBar from "./TransportBar";
@@ -55,18 +57,27 @@ function readLayout(): Layout {
 
 export default function Studio({ onHome }: { onHome?: () => void }) {
   const initial = useMemo(() => defaultProject(), []);
-  const { project, commit, reset, undo, redo, canUndo, canRedo } = useProjectHistory(initial);
+  const { project, commit, reset, undo, redo, jumpTo, clear, canUndo, canRedo, entries, currentIndex } = useProjectHistory(initial);
   const { settings } = useStudioSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTabId>("layouts");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(initial.layers[0]?.id ?? null);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
   const [split, setSplit] = useState(false);
   const [uiTime, setUiTime] = useState(0);
+  const uiTimeRef = useRef(0);
+  uiTimeRef.current = uiTime;
   const [seek, setSeek] = useState({ t: 0, nonce: 0 });
   const [modal, setModal] = useState<{ open: boolean; isNew: boolean }>({ open: false, isNew: false });
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [exportModal, setExportModal] = useState<{ open: boolean; format: ExportFormat }>({ open: false, format: "zip" });
+const [ledImportOpen, setLedImportOpen] = useState(false);
+const [ledImportFile, setLedImportFile] = useState<File | null>(null);
+  const zoomControlsRef = useRef<{ zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void } | null>(null);
   const [layout, setLayout] = useState(readLayout);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const [saveState, setSaveState] = useState<"loading" | "saved" | "saving" | "error">("loading");
@@ -85,10 +96,18 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     setUiTime(clamped);
   }, [project.duration]);
 
+  useEffect(() => {
+    if (project.layers.length === 0) {
+      setPlaying(false);
+      doSeek(0);
+    }
+  }, [project.layers.length, doSeek]);
+
   // Show the launcher on first Studio entry only. Reloads restore silently.
   useEffect(() => {
     if (bootRef.current) return; // StrictMode double-invoke
     bootRef.current = true;
+    void migrateLocalStorageProjects();
     let seen = false;
     try {
       seen = sessionStorage.getItem(LAUNCHER_SEEN_KEY) === "1";
@@ -131,10 +150,6 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   }, [project, settings.autoSaveProject]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem("tohran-layout", JSON.stringify(layout));
   }, [layout]);
 
@@ -146,12 +161,18 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   }, [project.fps, project.masterBrightness]);
 
   useEffect(() => {
-    // Grow-only: an empty new-project timeline must keep its chosen duration.
-    const needed = Math.max(MIN_DURATION, project.duration, ...project.layers.map((l) => l.startTime + l.duration));
-    if (needed - project.duration > 0.001) {
+    // Sequence end follows the clips: shrink as well as grow, so the playhead
+    // can never run past the last clip into empty space.
+    const needed = effectiveDuration(project);
+    if (Math.abs(needed - project.duration) > 0.001) {
       commit((p) => ({ ...p, duration: needed }), "auto:duration");
     }
-  }, [project.layers, project.duration, commit]);
+  }, [project.layers, project.duration, commit, project]);
+
+  useEffect(() => {
+    const ed = effectiveDuration(project);
+    if (uiTime > ed + 0.001) doSeek(ed);
+  }, [project.layers, uiTime, doSeek, project]);
 
   const patchLayer = useCallback((id: string, patch: Partial<Layer>) => {
     commit((p) => {
@@ -249,24 +270,45 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
       const fps = project.fps;
       const swfUrl = swfFileFor(effect);
       if (!swfUrl) return;
-      const media = await importSwf(new File([], "placeholder"), cols, rows, duration, fps);
-      // override with bundled URL — Ruffle loads from network path
-      const resolvedName = name ?? meta?.name ?? swfUrl.split("/").pop()?.replace(/\.[^.]+$/, "") ?? effect;
-      const layer = {
-        ...makeLayer("media", layerCount + 1),
-        name: `${resolvedName} ${layerCount + 1}`,
-        kind: "media",
-        effect: "media",
-        mediaType: "swf",
-        mediaSrc: swfUrl,
-        mediaFrames: media.frames,
-        mediaFps: media.fps,
-        mediaTrimBlack: true,
-        mediaFitMode: "stretch",
-      } as Layer;
-      commit((p) => ({ ...p, layers: [...p.layers, layer] }));
-      setSelectedId(layer.id);
-      return;
+      const ctrl = new AbortController();
+      const cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel import";
+      cancelBtn.className = "fixed inset-0 z-100 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+      cancelBtn.innerHTML = `<div style="background:#09090b;border:1px solid #3f3f46;border-radius:12px;padding:16px;color:#e4e4e7;font:600 14px ui-sans-serif,system-ui;text-align:center">
+        Cancelling import… <span style="font-weight:400;font-size:12px;color:#a1a1aa;margin-left:8px">×</span>
+      </div>`;
+      document.body.appendChild(cancelBtn);
+      ctrl.signal.addEventListener("abort", () => {
+        cancelBtn.remove();
+      }, { once: true });
+      cancelBtn.addEventListener("click", () => ctrl.abort(), { once: true });
+      try {
+        const media = await importSwf(swfUrl, cols, rows, duration, fps, undefined, ctrl.signal);
+        cancelBtn.remove();
+        const resolvedName = name ?? meta?.name ?? swfUrl.split("/").pop()?.replace(/\.[^.]+$/, "") ?? effect;
+        const layer = {
+          ...makeLayer("media", layerCount + 1),
+          name: `${resolvedName} ${layerCount + 1}`,
+          kind: "media",
+          effect: "media",
+          mediaType: "swf",
+          mediaSrc: media.src,
+          mediaFrames: media.frames,
+          mediaFps: media.fps,
+          mediaSrcW: cols,
+          mediaSrcH: rows,
+          mediaTrimBlack: true,
+          mediaFitMode: "stretch",
+        } as Layer;
+        commit((p) => ({ ...p, layers: [...p.layers, layer] }));
+        setSelectedId(layer.id);
+        if (uiTimeRef.current >= layer.startTime + layer.duration) doSeek(layer.startTime);
+        return;
+      } catch (err) {
+        cancelBtn.remove();
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        throw err;
+      }
     }
 
     const resolvedName = name ?? me?.name ?? meta?.name ?? effect;
@@ -278,7 +320,8 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     };
     commit((p) => ({ ...p, layers: [...p.layers, layer] }));
     setSelectedId(layer.id);
-  }, [commit, project.layers.length]);
+    if (uiTimeRef.current >= layer.startTime + layer.duration) doSeek(layer.startTime);
+  }, [commit, doSeek, project.layers.length, project.duration, project.fps, project.hardware]);
 
   const addPreset = useCallback((preset: Preset) => {
     const layer = {
@@ -289,7 +332,8 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     };
     commit((p) => ({ ...p, layers: [...p.layers, layer] }));
     setSelectedId(layer.id);
-  }, [commit, project.layers.length]);
+    if (uiTimeRef.current >= layer.startTime + layer.duration) doSeek(layer.startTime);
+  }, [commit, doSeek, project.layers.length]);
 
   const addMedia = useCallback((media: ImportedMedia, name: string) => {
     const layer = {
@@ -312,7 +356,8 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     };
     commit((p) => ({ ...p, layers: [...p.layers, layer] }));
     setSelectedId(layer.id);
-  }, [commit, project.fps, project.layers.length]);
+    if (uiTimeRef.current >= layer.startTime + layer.duration) doSeek(layer.startTime);
+  }, [commit, doSeek, project.fps, project.layers.length]);
 
   const importMedia = useCallback(async (file: File, onStatus: (message: string) => void) => {
     const { cols, rows } = project.hardware;
@@ -323,7 +368,9 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     } else if (name.endsWith(".sfx")) {
       media = await importSfx(file, cols, rows, onStatus);
     } else if (name.endsWith(".led") || name.endsWith(".zip")) {
-      media = await importLed(await file.arrayBuffer(), map, cols, rows, project.fps, onStatus);
+      setLedImportFile(file);
+      setLedImportOpen(true);
+      return;
     } else if (name.endsWith(".gif") || file.type === "image/gif") {
       media = await importGif(file, cols, rows, onStatus);
     } else if (file.type.startsWith("video/")) {
@@ -334,7 +381,13 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     addMedia(media, file.name.replace(/\.[^.]+$/, ""));
   }, [addMedia, map, project.duration, project.fps, project.hardware]);
 
-  const addKeyframe = useCallback(() => {
+  const importLedFile = useCallback(async (file: File, options: Record<string, unknown>, onStatus?: (message: string) => void) => {
+  const { cols, rows } = project.hardware;
+  const media = await importLed(await file.arrayBuffer(), map, cols, rows, project.fps, onStatus, options);
+  addMedia(media, file.name.replace(/\.[^.]+$/, ""));
+}, [addMedia, map, project.fps, project.hardware]);
+
+const addKeyframe = useCallback(() => {
     if (!selected) return;
     patchLayer(selected.id, {
       keyframes: [...selected.keyframes, {
@@ -351,7 +404,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
         e.preventDefault(); e.shiftKey ? redo() : undo(); return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
-      if (e.code === "Space") { e.preventDefault(); setPlaying((v) => !v); return; }
+      if (e.code === "Space") { e.preventDefault(); if (project.layers.length > 0) setPlaying((v) => !v); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); doAction("split"); return; }
       if (e.key.toLowerCase() === "s") { e.preventDefault(); doAction("split"); return; }
       if (e.key === "ArrowLeft") { e.preventDefault(); doSeek(uiTime - 1 / project.fps); return; }
@@ -360,7 +413,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, doSeek, uiTime, project.fps, selectedId, doAction]);
+  }, [undo, redo, doSeek, uiTime, project.fps, project.layers.length, selectedId, doAction]);
 
   const saveJson = () => {
     const blob = new Blob([JSON.stringify({ ...project, generator: "PixleLED Studio by Jambh Electricals" }, null, 2)], { type: "application/json" });
@@ -401,10 +454,13 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   };
 
   const renameProject = () => {
-    const name = window.prompt("Project name", project.name);
-    if (name === null) return;
-    const trimmed = name.trim();
+    setRenameValue(project.name);
+    setRenameOpen(true);
+  };
+  const commitRename = () => {
+    const trimmed = renameValue.trim();
     if (trimmed && trimmed !== project.name) commit((p) => ({ ...p, name: trimmed }), "project:rename");
+    setRenameOpen(false);
   };
 
   const deleteCurrentProjectRecord = async () => {
@@ -460,29 +516,37 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   return (
     <main className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 select-none">
       <TopBar
-        project={project}
-        onHome={() => { try { sessionStorage.removeItem(LAUNCHER_SEEN_KEY); } catch {} onHome?.(); }}
-        onProjects={() => setLauncherOpen(true)}
-        onHardware={() => setModal({ open: true, isNew: false })}
-        onRename={renameProject}
-        onDeleteProject={deleteCurrentProjectRecord}
-        onSaveJson={saveJson}
-        onLoadJson={() => importRef.current?.click()}
-        onExportLed={() => setExportModal({ open: true, format: "led" })}
-        onExportAvi={() => setExportModal({ open: true, format: "zip" })}
-        onFps={(fps) => commit((p) => ({ ...p, fps }))}
-
-        onBrightness={(masterBrightness) => commit((p) => ({ ...p, masterBrightness }), "master:brightness")}
-        onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo}
-        onOpenSettings={() => setSettingsOpen(true)}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onExport={() => setExportModal({ open: true, format: "led-rec" })}
       />
       <input ref={importRef} type="file" accept="application/json,.json" hidden
         onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
 
       <div className="flex min-h-0 flex-1">
-        <LeftDock onAdd={addLayer} onAddPreset={addPreset} onImportMedia={importMedia} width={layout.left} />
-        <ResizeHandle axis="x" label="effects dock"
-          onDrag={(d) => setLayout((s) => ({ ...s, left: clampSize(s.left + d, 200, 440) }))} />
+        <OverlaySidebar
+          open={sidebarOpen}
+          onOpenChange={setSidebarOpen}
+          activeTab={sidebarTab}
+          onActiveTabChange={setSidebarTab}
+          project={project}
+          onProjects={() => setLauncherOpen(true)}
+          onHardware={() => setModal({ open: true, isNew: false })}
+          onRename={renameProject}
+          onDeleteProject={deleteCurrentProjectRecord}
+          onSaveJson={saveJson}
+          onLoadJson={() => importRef.current?.click()}
+          onExportLed={() => setExportModal({ open: true, format: "led-rec" })}
+          onExportAvi={() => setExportModal({ open: true, format: "zip" })}
+          onFps={(fps) => commit((p) => ({ ...p, fps }))}
+          onBrightness={(masterBrightness) => commit((p) => ({ ...p, masterBrightness }), "master:brightness")}
+          onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onAdd={addLayer} onAddPreset={addPreset} onImportMedia={importMedia}
+          onApplyHardware={(hardware) => commit((pp) => ({ ...pp, hardware }), "hardware:layout")}
+          onCommit={commit}
+          map={map}
+        />
         <section className="flex min-w-0 min-h-0 flex-1 flex-col">
           <CanvasViewport
             project={project} map={map} playing={playing} loop={loop} seek={seek}
@@ -496,11 +560,13 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
             paused={launcherOpen}
           />
           <TransportBar
-            playing={playing} loop={loop} time={uiTime}
+            playing={playing} canPlay={project.layers.length > 0} loop={loop} time={uiTime}
             duration={project.duration} fps={project.fps}
-            onPlay={() => setPlaying((v) => !v)} onStop={() => { setPlaying(false); doSeek(0); }}
+            onPlay={() => setPlaying((v) => project.layers.length > 0 ? !v : false)} onStop={() => { setPlaying(false); doSeek(0); }}
             onPrev={() => doSeek(uiTime - 1 / project.fps)} onNext={() => doSeek(uiTime + 1 / project.fps)}
             onLoop={() => setLoop((v) => !v)}
+            onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo}
+            entries={entries} currentIndex={currentIndex} onJump={jumpTo} onClearHistory={clear}
           />
         </section>
         <ResizeHandle axis="x" label="inspector"
@@ -534,12 +600,45 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
           onClose={() => setModal({ open: false, isNew: false })} onApply={applyHardware}
         />
       )}
+      {renameOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+            <label className="label mb-2 block">Project name</label>
+            <input
+              className="field"
+              value={renameValue}
+              autoFocus
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setRenameOpen(false);
+              }}
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button className="btn" onClick={() => setRenameOpen(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={commitRename}>Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
       <AnimatePresence>
         {exportModal.open && (
           <MotionExport key="export" open={exportModal.open} project={project} map={map} initialFormat={exportModal.format}
             onClose={() => setExportModal((s) => ({ ...s, open: false }))} />
         )}
       </AnimatePresence>
+      {ledImportOpen && ledImportFile && (
+        <LedImportModal
+          open={ledImportOpen}
+          file={ledImportFile}
+          map={map}
+          cols={project.hardware.cols}
+          rows={project.hardware.rows}
+          fps={project.fps}
+          onClose={() => { setLedImportOpen(false); setLedImportFile(null); }}
+          onImport={async (f, opts) => { await importLedFile(f, opts); }}
+        />
+      )}
       <ProjectLauncherModal
         open={launcherOpen} allowClose={choiceRef.current}
         config={{ name: project.name, fps: project.fps, duration: project.duration, hardware: project.hardware }}

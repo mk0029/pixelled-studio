@@ -96,6 +96,8 @@ export interface Layer {
   enabled: boolean;
   solo: boolean;
   mute: boolean;
+  opacity?: number;
+  locked?: boolean;
   color: string;
   gradient: string[];
   rainbow: boolean;
@@ -104,6 +106,7 @@ export interface Layer {
   brightness: number;
   speed: number;
   density: number;
+  scale?: number;
   angle: number;
   /** Animate Direction / Angle over time instead of holding it fixed. */
   rotate?: boolean;
@@ -160,13 +163,28 @@ export interface Layer {
   mediaFlipX?: boolean;
   /** Mirror the imported frame vertically. */
   mediaFlipY?: boolean;
+  /** Rotation of the imported media in degrees (0-360). */
+  mediaRotation?: number;
+  /** Spin the imported media over time on top of mediaRotation. */
+  mediaAutoRotate?: boolean;
+  /** Auto-rotation rate in degrees per second; negative reverses. */
+  mediaRotateSpeed?: number;
   blend: BlendMode;
+  direction?: string;
+  dotParams?: import("@/engine/effects/accentDots").DotParams;
+  spriteType?: string;
+  spriteCount?: number;
+  spriteScale?: number;
+  spriteSpeed?: number;
+  spriteDirection?: string;
   symmetry: Symmetry;
   loop?: boolean;
   startTime: number;
   duration: number;
   fadeIn: number;
   fadeOut: number;
+  fadeInEffect?: string;
+  fadeOutEffect?: string;
   keyframes: Keyframe[];
   // Text layer fields
   textContent?: string;
@@ -249,12 +267,14 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     enabled: true,
     solo: false,
     mute: false,
+    opacity: 100,
+    locked: false,
     color: meta.kind === "math" ? "#38e1d4" : "#9a7cff",
     gradient: ["#38e1d4", "#9a7cff"],
     rainbow: effect === "rainbow",
     hueShift: 0,
     saturation: 100,
-    brightness: 85,
+    brightness: 100,
     speed: 1,
     density: 1.4,
     angle: 0,
@@ -272,12 +292,21 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     textSize: 1,
     textSpeed: 1,
     blend: effect === "sweep" ? "add" : "normal",
+    direction: "normal",
+    dotParams: { enabled: false, pattern: "diamond_mesh", action: "static", direction: "sync", speed: 1, blinkRate: 2, spacing: 2, colorMode: "white", customColor: "#ffffff", placement: "on_top" },
+    spriteType: "heart",
+    spriteCount: 1,
+    spriteScale: 1,
+    spriteSpeed: 1,
+    spriteDirection: "right",
     symmetry: "none",
     loop: true,
     startTime: 0,
     duration: 12,
     fadeIn: 0,
     fadeOut: 0,
+    fadeInEffect: "fade",
+    fadeOutEffect: "fade",
     keyframes: [],
   };
 }
@@ -289,7 +318,7 @@ export function defaultProject(): Project {
     hardware: { ...DEFAULT_HARDWARE },
     fps: 30,
     duration: 12,
-    masterBrightness: 85,
+    masterBrightness: 100,
     gamma: 2.2,
     layers: [],
     lineAnimations: [],
@@ -342,6 +371,9 @@ export function normalizeProject(project: Project): Project {
       mediaDirection: l.mediaDirection ?? "forward",
       mediaFlipX: l.mediaFlipX ?? false,
       mediaFlipY: l.mediaFlipY ?? false,
+      mediaRotation: l.mediaRotation ?? 0,
+      mediaAutoRotate: l.mediaAutoRotate ?? false,
+      mediaRotateSpeed: l.mediaRotateSpeed ?? 60,
       mediaSrcW: l.mediaSrcW ?? 0,
       mediaSrcH: l.mediaSrcH ?? 0,
       mediaFitMode: l.mediaFitMode ?? "stretch",
@@ -356,6 +388,11 @@ export function normalizeProject(project: Project): Project {
       mathParams: l.mathParams ?? {},
     })),
   };
+}
+
+/** Dynamic end of the sequence: latest clip end, or 0 when empty. */
+export function effectiveDuration(project: Project): number {
+  return Math.max(0, ...project.layers.map((l) => l.startTime + l.duration));
 }
 
 export function clampLayerTiming(layer: Layer, total: number): Layer {

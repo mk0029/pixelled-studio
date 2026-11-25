@@ -1,0 +1,42 @@
+import type { ControllerSpec, ChipsetSpec } from "@/types/hardware";
+
+export const CONTROLLERS: ControllerSpec[] = [
+  { id: "T-1000S", family: "T-Series · SD Offline", ports: 1, pixelsPerPort: 2048, maxPixels: 2048, link: "SD Card", fps: 30, detail: "Single output – offline SD playback" },
+  { id: "T-4000", family: "T-Series · SD Offline", ports: 4, pixelsPerPort: 1024, maxPixels: 4096, link: "SD Card", fps: 30, detail: "4 outputs – 1024 px/port" },
+  { id: "T-8000A", family: "T-Series · SD Offline", ports: 8, pixelsPerPort: 1024, maxPixels: 8192, link: "SD Card", fps: 30, detail: "8-port workhorse – 30 fps" },
+  { id: "T-8000AC", family: "T-Series · SD Offline", ports: 8, pixelsPerPort: 1024, maxPixels: 8192, link: "SD Card", fps: 60, detail: "8-port AC – 60 fps" },
+  { id: "T-300K", family: "T-Series · SD Offline", ports: 8, pixelsPerPort: 2048, maxPixels: 16384, link: "SD / Ethernet", fps: 30, detail: "Cascadable expansion" },
+  { id: "T-500K", family: "T-Series · SD Offline", ports: 8, pixelsPerPort: 2048, maxPixels: 16384, link: "SD / Ethernet", fps: 30, detail: "Long-range cascading" },
+  { id: "K-1000C", family: "K-Series · Advanced", ports: 1, pixelsPerPort: 2048, maxPixels: 2048, link: "SD / Ethernet", fps: 30, detail: "32–65,536 grey levels" },
+  { id: "K-8000C", family: "K-Series · Advanced", ports: 8, pixelsPerPort: 1024, maxPixels: 8192, link: "SD / Ethernet", fps: 30, detail: "8 outputs – advanced grey-scale" },
+  { id: "H801TC", family: "H-Series", ports: 2, pixelsPerPort: 16384, maxPixels: 32768, link: "Art-Net / DMX", fps: 60, detail: "Art-Net / DMX-SPI bridge" },
+  { id: "H802RA", family: "H-Series", ports: 2, pixelsPerPort: 16384, maxPixels: 32768, link: "Art-Net / DMX", fps: 60, detail: "Dual-output DMX-SPI receiver" },
+  { id: "ESP8266-WLED", family: "H-Series", ports: 8, pixelsPerPort: 2048, maxPixels: 16384, link: "WiFi / SPI", fps: 60, detail: "WLED on ESP8266" },
+  { id: "ESP32-WLED", family: "H-Series", ports: 8, pixelsPerPort: 2048, maxPixels: 16384, link: "WiFi / SPI", fps: 60, detail: "WLED on ESP32" },
+  { id: "ARTNET-NODE", family: "H-Series", ports: 8, pixelsPerPort: 16384, maxPixels: 131072, link: "Art-Net / sACN", fps: 60, detail: "Art-Net / sACN node" },
+  { id: "ARELAB-800", family: "H-Series", ports: 1, pixelsPerPort: 800, maxPixels: 800, link: "SD Card", fps: 30, detail: "Arelab 800" },
+  { id: "ARELAB-1800", family: "H-Series", ports: 1, pixelsPerPort: 1800, maxPixels: 1800, link: "SD Card", fps: 30, detail: "Arelab 1800" },
+  { id: "ARELAB-5000", family: "H-Series", ports: 1, pixelsPerPort: 5000, maxPixels: 5000, link: "SD Card", fps: 30, detail: "Arelab 5000" },
+  { id: "ARELAB-BELT-S", family: "H-Series", ports: 1, pixelsPerPort: 2048, maxPixels: 2048, link: "SD Card", fps: 30, detail: "Arelab Belt-S" },
+  { id: "KOSHI", family: "H-Series", ports: 4, pixelsPerPort: 2048, maxPixels: 8192, link: "SD Card", fps: 30, detail: "Koshi controller" },
+  { id: "HUIDU-HD2020", family: "H-Series", ports: 1, pixelsPerPort: 2048, maxPixels: 2048, link: "SD Card", fps: 30, detail: "Huidu HD2020" },
+];
+
+export const CHIPSETS: ChipsetSpec[] = [
+  { id: "WS2811", name: "WS2811", channels: 3, protocol: "800 kHz", detail: "Classic 3-channel LED driver" },
+  { id: "WS2812B", name: "WS2812B", channels: 3, protocol: "800 kHz", detail: "Integrated RGB – GRB order" },
+  { id: "WS2813", name: "WS2813", channels: 3, protocol: "800 kHz", detail: "WS2812B with backup data" },
+  { id: "WS2815", name: "WS2815", channels: 3, protocol: "800 kHz", detail: "12 V RGB" },
+  { id: "UCS1903", name: "UCS1903", channels: 3, protocol: "800 kHz", detail: "Common facade/toran driver" },
+  { id: "TM1804", name: "TM1804", channels: 3, protocol: "800 kHz", detail: "Legacy 3-channel" },
+  { id: "TM1812", name: "TM1812", channels: 3, protocol: "800 kHz", detail: "12-channel variant" },
+  { id: "SM16703", name: "SM16703", channels: 3, protocol: "800 kHz", detail: "Cost-reduced RGB driver" },
+  { id: "SK6812", name: "SK6812 RGBW", channels: 4, protocol: "800 kHz", detail: "4-channel RGBW string" },
+  { id: "TM1814", name: "TM1814", channels: 4, protocol: "800 kHz", detail: "RGBW driver" },
+  { id: "WS2801", name: "WS2801", channels: 3, protocol: "SPI", detail: "SPI clock+data RGB" },
+  { id: "LPD6803", name: "LPD6803", channels: 3, protocol: "SPI", detail: "SPI clock+data RGB" },
+  { id: "APA102", name: "APA102", channels: 3, protocol: "SPI", detail: "SPI (DotStar)" },
+  { id: "UCS512", name: "UCS512", channels: 3, protocol: "DMX512", detail: "DMX512 RGB" },
+  { id: "TM512", name: "TM512", channels: 3, protocol: "DMX512", detail: "DMX512 RGB" },
+  { id: "DMX512", name: "DMX512", channels: 3, protocol: "250 kbps", detail: "512-channel universe" },
+];

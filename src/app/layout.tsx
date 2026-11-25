@@ -90,6 +90,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       </head>
       <body>

@@ -110,6 +110,8 @@ export function sampleMedia(layer: Layer, cols: number, rows: number, time: numb
 
   const swap = layer.mediaChannelSwap === true;
   const fit = layer.mediaFitMode ?? "stretch";
+  const autoRotate = layer.mediaAutoRotate === true;
+  const rotation = (layer.mediaRotation ?? 0) + (autoRotate ? time * (layer.mediaRotateSpeed ?? 60) : 0);
 
   const sx = Math.max(0.05, Math.min(4, layer.mediaScale ?? 1));
   const sy = Math.max(0.05, Math.min(4, layer.mediaScaleY ?? layer.mediaScale ?? 1));
@@ -135,8 +137,9 @@ export function sampleMedia(layer: Layer, cols: number, rows: number, time: numb
     oy = Math.round((rows - dh) / 2 + (layer.mediaOffsetY ?? 0));
   }
 
-  const key = `${cols}x${rows}:${frame}:${srcW}x${srcH}:${cropX},${cropY},${cropW},${cropH}:${swap}:${fit}:${sx}:${sy}:${layer.mediaOffsetX}:${layer.mediaOffsetY}:${layer.mediaFlipX}:${layer.mediaFlipY}:${layer.mediaSmoothing}:${thresh}`;
-  const cachedFrame = entry.frames.get(key);
+  const key = `${cols}x${rows}:${frame}:${srcW}x${srcH}:${cropX},${cropY},${cropW},${cropH}:${swap}:${fit}:${sx}:${sy}:${layer.mediaOffsetX}:${layer.mediaOffsetY}:${layer.mediaFlipX}:${layer.mediaFlipY}:${rotation}:${layer.mediaSmoothing}:${thresh}`;
+  // shortcut: spinning changes rotation every frame, so caching those frames would only thrash the 512-entry cache
+  const cachedFrame = autoRotate ? undefined : entry.frames.get(key);
   if (cachedFrame) return cachedFrame;
 
   const c = scratch(cols, rows);
@@ -145,8 +148,11 @@ export function sampleMedia(layer: Layer, cols: number, rows: number, time: numb
 
   c.imageSmoothingEnabled = frames === 0 ? (layer.mediaSmoothing !== false) : false;
   c.save();
-  if (layer.mediaFlipX || layer.mediaFlipY) {
+  if (layer.mediaFlipX || layer.mediaFlipY || rotation) {
     c.translate(ox + dw / 2, oy + dh / 2);
+    if (rotation) {
+      c.rotate((rotation * Math.PI) / 180);
+    }
     c.scale(layer.mediaFlipX ? -1 : 1, layer.mediaFlipY ? -1 : 1);
     c.translate(-(ox + dw / 2), -(oy + dh / 2));
   }
@@ -175,8 +181,10 @@ export function sampleMedia(layer: Layer, cols: number, rows: number, time: numb
   }
 
   const out = new Uint8ClampedArray(c.getImageData(0, 0, cols, rows).data);
-  entry.frames.set(key, out);
-  if (entry.frames.size > 512) entry.frames.clear();
+  if (!autoRotate) {
+    entry.frames.set(key, out);
+    if (entry.frames.size > 512) entry.frames.clear();
+  }
   return out;
 }
 

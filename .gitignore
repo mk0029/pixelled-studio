@@ -24,3 +24,7 @@ pnpm-debug.log*
 # local files
 .DS_Store
 *.pem
+
+# stale locked build artifacts
+/.next_locked_*/
+/out_locked_*/

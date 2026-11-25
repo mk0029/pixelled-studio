@@ -11,7 +11,9 @@ export interface Preset {
 }
 
 export const PRESET_CATEGORIES = [
+  "Static Animations",
   "Festive & Toran",
+  "Classic Indian Toran",
   "DJ & Club Strobes",
   "Flags & Tricolor",
   "Water & Fire",
@@ -49,16 +51,50 @@ const PROFILES: Profile[] = [
 ];
 
 export const PRESETS: Preset[] = [];
+
+// Solid single-frame colours used as LedEdit calibration references: export one,
+// record it, and the REC/LED pair gives a known input/output sample per byte.
+const STATIC_COLORS: [string, string][] = [
+  ["Red", "#ff0000"], ["Green", "#00ff00"], ["Blue", "#0000ff"],
+  ["White", "#ffffff"], ["Black", "#000000"], ["Yellow", "#ffff00"],
+  ["Cyan", "#00ffff"], ["Magenta", "#ff00ff"],
+];
+for (const [name, color] of STATIC_COLORS) {
+  PRESETS.push({
+    id: `preset:static:${name.toLowerCase()}`,
+    name: `Static ${name}`,
+    category: "Static Animations",
+    effectId: "custom",
+    description: `Solid ${name} frame — use as a LedEdit colour-calibration reference.`,
+    params: {
+      kind: "math",
+      effect: "custom",
+      expression: "1",
+      color,
+      gradient: [color, color],
+      rainbow: false,
+      blend: "normal",
+      brightness: 100,
+      speed: 0,
+      opacity: 100,
+      fadeIn: 0,
+      fadeOut: 0,
+      trails: 0,
+      strobeHz: 0,
+    },
+  });
+}
+
 let idx = 0;
 for (const eff of MATH_EFFECTS) {
   if (eff.id === "custom") continue;
-  for (let p = 0; p < 2; p++) {
+  for (let p = 0; p < 8; p++) {
     const prof = PROFILES[(idx + p * 3) % PROFILES.length];
     idx++;
     PRESETS.push({
       id: `preset:${eff.id}:${p}`,
       name: `${eff.name} · ${prof.name}`,
-      category: prof.category,
+      category: eff.name.startsWith("Toran") ? "Classic Indian Toran" : prof.category,
       effectId: eff.id,
       description: `${eff.description} — ${prof.name}`,
       params: {
@@ -66,7 +102,7 @@ for (const eff of MATH_EFFECTS) {
         gradient: [...prof.colors],
         blend: prof.blend,
         brightness: prof.brightness,
-        speed: prof.speed,
+        speed: 1,
         density: prof.density,
         angle: prof.angle,
         symmetry: prof.symmetry,

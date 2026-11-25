@@ -6,6 +6,7 @@ import { drawSimulatorFrame } from "@/engine/ledSimulator";
 import { PORT_COLORS, type WiringMap } from "@/engine/wiringMapper";
 import type { Project } from "@/types/project";
 import { Icon } from "./icons";
+import { useStudioSettings } from "@/context/StudioSettingsContext";
 
 interface Props {
   project: Project;
@@ -24,6 +25,7 @@ interface Props {
   split: boolean;
   onSplit: () => void;
   paused?: boolean;
+  onRegisterZoomControls?: (controls: { zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void }) => void;
 }
 
 interface Geom { ox: number; oy: number; cell: number }
@@ -32,6 +34,7 @@ type PreviewMode = "current" | "simulator";
 
 export default function CanvasViewport(p: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const playRef = useRef(0);
   const viewRef = useRef({ zoom: 1, panX: 0, panY: 0 });
   const geomRef = useRef<Geom>({ ox: 0, oy: 0, cell: 10 });
@@ -41,8 +44,10 @@ export default function CanvasViewport(p: Props) {
   const [hover, setHover] = useState<string>("—");
   const [zoomLabel, setZoomLabel] = useState(100);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("simulator");
+  const [isCanvasToolbarOpen, setIsCanvasToolbarOpen] = useState(false);
   const previewModeRef = useRef(previewMode);
   previewModeRef.current = previewMode;
+  const { getTransition } = useStudioSettings();
 
   useEffect(() => { playRef.current = p.seek.t; }, [p.seek.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -214,13 +219,18 @@ export default function CanvasViewport(p: Props) {
       const { project, map, playing, loop, loopStart, loopEnd, onTime, onEnd, split, paused } = propsRef.current;
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
-      if (paused) { raf = requestAnimationFrame(tick); return; }
-      if (playing) {
+      const seqEnd = Math.max(0, ...project.layers.map((l) => l.startTime + l.duration));
+      if (!paused && playing) {
         playRef.current += dt;
         if (playRef.current < loopStart) playRef.current = loopStart;
         if (playRef.current >= loopEnd) {
           if (loop) playRef.current = loopStart;
           else { playRef.current = loopEnd; onEnd(); }
+        }
+        // Never let the playhead run past the end of the sequence.
+        if (seqEnd > 0 && playRef.current > seqEnd) {
+          if (loop) playRef.current = 0;
+          else { playRef.current = seqEnd; onEnd(); }
         }
       }
       if (now - lastUi > 90) { onTime(playRef.current); lastUi = now; }
@@ -268,6 +278,23 @@ export default function CanvasViewport(p: Props) {
       const z = parseFloat(localStorage.getItem("pixleled_zoom_v1") || "1");
       if (z >= 0.25 && z <= 6) { viewRef.current.zoom = z; setZoomLabel(Math.round(z * 100)); }
     } catch {}
+  }, []);
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (canvasContainerRef.current && !canvasContainerRef.current.contains(e.target as Node)) {
+        setIsCanvasToolbarOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsCanvasToolbarOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   useEffect(() => {
@@ -320,8 +347,19 @@ export default function CanvasViewport(p: Props) {
     try { localStorage.setItem("pixleled_zoom_v1", String(viewRef.current.zoom)); } catch {}
   };
 
+  useEffect(() => {
+    p.onRegisterZoomControls?.({
+      zoomIn: () => zoom(1.15),
+      zoomOut: () => zoom(0.85),
+      fit: () => { viewRef.current = { zoom: 1, panX: 0, panY: 0 }; setZoomLabel(100); },
+      hundred: () => { viewRef.current.zoom = 1; setZoomLabel(100); },
+    });
+  }, [p.onRegisterZoomControls]);
+
   return (
-    <div className="relative min-h-0 flex-1 bg-zinc-950">
+    <div ref={canvasContainerRef} className="relative min-h-0 flex-1 bg-zinc-950"
+      onClick={() => setIsCanvasToolbarOpen(true)}
+      onContextMenu={(e) => { e.preventDefault(); setIsCanvasToolbarOpen(true); }}>
       <canvas ref={canvasRef} className="h-full w-full cursor-crosshair touch-none"
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onDoubleClick={() => { viewRef.current = { zoom: 1, panX: 0, panY: 0 }; setZoomLabel(100); }} />
@@ -331,24 +369,37 @@ export default function CanvasViewport(p: Props) {
         <span className="rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-teal-300 backdrop-blur">{hover}</span>
       </div>
 
-      <div className="absolute right-3 top-3 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/85 p-1 backdrop-blur">
-        <button className={`btn px-2 text-[10px] ${previewMode === "current" ? "chip-active" : ""}`}
-          aria-pressed={previewMode === "current"} title="D1 — Current Studio preview"
-          onClick={() => setPreviewMode("current")}>D1</button>
-        <button className={`btn px-2 text-[10px] ${previewMode === "simulator" ? "chip-active" : ""}`}
-          aria-pressed={previewMode === "simulator"} title="D2 — ledSimulator preview"
-          onClick={() => setPreviewMode("simulator")}>D2</button>
-        <span className="mx-0.5 h-4 w-px bg-zinc-700" />
-        <button className="btn btn-icon" title="Zoom out" onClick={() => zoom(0.85)}><Icon name="zoomOut" /></button>
-        <span className="w-9 text-center font-mono text-[10px] text-zinc-400">{zoomLabel}%</span>
-        <button className="btn btn-icon" title="Zoom in" onClick={() => zoom(1.15)}><Icon name="zoomIn" /></button>
-        <button className="btn btn-icon" title="Fit / reset view" onClick={() => { viewRef.current = { zoom: 1, panX: 0, panY: 0 }; setZoomLabel(100); }}><Icon name="fit" /></button>
-        <span className="mx-0.5 h-4 w-px bg-zinc-700" />
-        <button className={`btn btn-icon ${p.project.hardware.showWiring ? "text-teal-300" : ""}`} title="Wiring overlay" onClick={p.onToggleWiring}><Icon name="cpu" /></button>
-        <button className={`btn btn-icon ${p.project.hardware.showIndices ? "text-teal-300" : ""}`} title="Pixel index labels" onClick={p.onToggleIndices}><span className="font-mono text-[9px]">#</span></button>
-        <button className={`btn btn-icon ${p.project.hardware.showPitch ? "text-teal-300" : ""}`} title="Pitch grid" onClick={p.onTogglePitch}><Icon name="grid" /></button>
-        <button className={`btn btn-icon ${p.split ? "text-teal-300" : ""}`} title="Split / compare preview" onClick={p.onSplit}><Icon name="split" /></button>
-      </div>
+      {p.playing && p.project.layers.length > 0 && (
+        <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-1.5 rounded bg-black/60 px-2 py-1 font-mono text-[10px] text-teal-300 backdrop-blur">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-400" />
+          <span>{String(Math.floor(p.seek.t / 60)).padStart(2, "0")}:{(p.seek.t % 60).toFixed(1).padStart(4, "0")}</span>
+        </div>
+      )}
+
+      {isCanvasToolbarOpen ? (
+        <div className="absolute right-3 top-3 flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/85 p-1 backdrop-blur">
+            <button className={`btn px-2 text-[10px] ${previewMode === "current" ? "chip-active" : ""}`}
+              aria-pressed={previewMode === "current"} title="D1 — Current Studio preview"
+              onClick={(e) => { e.stopPropagation(); setPreviewMode("current"); }}>D1</button>
+            <button className={`btn px-2 text-[10px] ${previewMode === "simulator" ? "chip-active" : ""}`}
+              aria-pressed={previewMode === "simulator"} title="D2 — ledSimulator preview"
+              onClick={(e) => { e.stopPropagation(); setPreviewMode("simulator"); }}>D2</button>
+            <span className="mx-0.5 h-4 w-px bg-zinc-700" />
+            <button className="btn btn-icon" title="Zoom out" onClick={(e) => { e.stopPropagation(); zoom(0.85); }}><Icon name="zoomOut" /></button>
+            <span className="w-9 text-center font-mono text-[10px] text-zinc-400">{zoomLabel}%</span>
+            <button className="btn btn-icon" title="Zoom in" onClick={(e) => { e.stopPropagation(); zoom(1.15); }}><Icon name="zoomIn" /></button>
+            <button className="btn btn-icon" title="Fit / reset view" onClick={(e) => { e.stopPropagation(); viewRef.current = { zoom: 1, panX: 0, panY: 0 }; setZoomLabel(100); }}><Icon name="fit" /></button>
+            <span className="mx-0.5 h-4 w-px bg-zinc-700" />
+            <button className={`btn btn-icon ${p.project.hardware.showWiring ? "text-teal-300" : ""}`} title="Wiring overlay" onClick={(e) => { e.stopPropagation(); p.onToggleWiring(); }}><Icon name="cpu" /></button>
+            <button className={`btn btn-icon ${p.project.hardware.showIndices ? "text-teal-300" : ""}`} title="Pixel index labels" onClick={(e) => { e.stopPropagation(); p.onToggleIndices(); }}><span className="font-mono text-[9px]">#</span></button>
+            <button className={`btn btn-icon ${p.project.hardware.showPitch ? "text-teal-300" : ""}`} title="Pitch grid" onClick={(e) => { e.stopPropagation(); p.onTogglePitch(); }}><Icon name="grid" /></button>
+            <button className={`btn btn-icon ${p.split ? "text-teal-300" : ""}`} title="Split / compare preview" onClick={(e) => { e.stopPropagation(); p.onSplit(); }}><Icon name="split" /></button>
+          </div>
+        ) : !p.playing ? (
+          <div className="absolute bottom-3 left-3 text-[11px] text-zinc-600 pointer-events-none">
+            Click or right-click canvas for view tools
+          </div>
+        ) : null}
 
       <div className="pointer-events-none absolute bottom-2 right-3 text-[9px] text-zinc-700">drag to pan · wheel to zoom · double-click to fit</div>
     </div>

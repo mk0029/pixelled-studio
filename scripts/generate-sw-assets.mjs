@@ -1,49 +1,15 @@
-import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const root = process.cwd();
-const assets = new Set();
 
-function walk(dir, base) {
-  let entries;
-  try { entries = readdirSync(dir); } catch { return; }
-  for (const name of entries) {
-    const full = join(dir, name);
-    const st = statSync(full);
-    if (st.isDirectory()) walk(full, base);
-    else {
-      const rel = relative(base, full).split(sep).join("/");
-      assets.add("/" + rel);
-    }
-  }
-}
+// shortcut: shell-only precache; runtime cache-first stores chunks after the first controlled load
+const assets = Array.from(new Set(["/", "/manifest.webmanifest"]));
+const list = assets.map((a) => JSON.stringify(a)).join(",\n  ");
 
-// Next.js static chunks
-const nextStatic = join(root, ".next", "static");
-let nextEntries;
-try { nextEntries = readdirSync(nextStatic); } catch { nextEntries = []; }
-function walkNext(dir) {
-  let entries; try { entries = readdirSync(dir); } catch { return; }
-  for (const name of entries) {
-    const full = join(dir, name);
-    const st = statSync(full);
-    if (st.isDirectory()) walkNext(full);
-    else {
-      const rel = relative(nextStatic, full).split(sep).join("/");
-      assets.add("/_next/static/" + rel);
-    }
-  }
-}
-walkNext(nextStatic);
-// public assets
-walk(join(root, "public"), join(root, "public"));
-
-// Add root shell
-assets.add("/");
-
-const list = [...assets].map((a) => JSON.stringify(a)).join(",\n  ");
 const swPath = join(root, "public", "sw.js");
 let sw = readFileSync(swPath, "utf8");
 sw = sw.replace(/const PRECACHE_ASSETS = \[[\s\S]*?\];/, `const PRECACHE_ASSETS = [\n  ${list}\n];`);
 writeFileSync(swPath, sw);
-console.log(`Precached ${assets.size} assets into sw.js`);
+try { writeFileSync(join(root, "out", "sw.js"), sw); } catch {}
+console.log(`Precached ${assets.length} shell assets into sw.js`);

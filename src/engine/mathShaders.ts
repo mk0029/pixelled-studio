@@ -16,7 +16,10 @@ export interface ShaderContext {
   r: number;
   i: number;
   density: number;
+  scale?: number;
+  speed?: number;
   angle: number;
+  direction: string;
   /** Percentage of pixels that twinkle at any instant. */
   sparkleDensity?: number;
   /** Flashes per second. */
@@ -70,7 +73,11 @@ export function polarCoords(nx: number, ny: number, w: number, h: number) {
 
 /** Returns 0..1 intensity for one pixel at one instant. */
 export function sampleShader(effect: EffectId, c: ShaderContext): number {
-  const [u, v] = rotateUV(c.nx, c.ny, c.angle);
+  const dir = c.direction ?? "normal";
+  let nx = c.nx, ny = c.ny;
+  if (dir === "left" || dir === "up" || dir === "out" || dir === "ccw") nx = 1 - nx;
+  if (dir === "up" || dir === "left" || dir === "out" || dir === "ccw") ny = 1 - ny;
+  const [u, v] = rotateUV(nx, ny, c.angle);
   const d = c.density;
   const t = c.t;
   const { aspect, cx, cy, r } = polarCoords(u, v, c.w, c.h);

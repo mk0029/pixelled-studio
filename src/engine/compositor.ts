@@ -1,5 +1,7 @@
 import { hexToRgb, hslToRgb, polarCoords, rotateUV, sampleShader, type ShaderContext } from "./mathShaders";
 import { renderTextLayer } from "./textRenderer";
+import { applyAccentDots } from "./effects/accentDots";
+import { renderSpriteLayer } from "./effects/characterSprites";
 import { sampleMedia } from "./mediaRenderer";
 import { sampleMathEffect, getMathEffect } from "./mathCatalog";
 import { audioStore } from "./audio";
@@ -8,6 +10,45 @@ import type { BlendMode, Layer, Project } from "@/types/project";
 
 const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+function transitionMask(effect: string, p: number, x: number, y: number, cols: number, rows: number): number {
+  if (!effect || effect === "none") return 1;
+  if (effect === "fade") return p;
+  const nx = cols > 1 ? x / (cols - 1) : 0.5;
+  const ny = rows > 1 ? y / (rows - 1) : 0.5;
+  const cx = nx - 0.5;
+  const cy = ny - 0.5;
+  const r = Math.hypot(cx, cy);
+  switch (effect) {
+    case "wipe-lr": return nx <= p ? 1 : 0;
+    case "wipe-rl": return 1 - nx <= p ? 1 : 0;
+    case "wipe-tb": return ny <= p ? 1 : 0;
+    case "wipe-bt": return 1 - ny <= p ? 1 : 0;
+    case "iris": return r <= p * 0.75 ? 1 : 0;
+    case "curtain": return Math.abs(cx) <= p * 0.5 ? 1 : 0;
+    case "sparkle": return (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453 % 1) <= p ? 1 : 0;
+    case "strobe": return p > 0.5 ? 1 : 0;
+    default: return p;
+  }
+}
+
+function transitionAlpha(layer: any, elapsed: number, duration: number, x: number, y: number, cols: number, rows: number): number {
+  let alpha = 1;
+  const fadeIn = layer.fadeIn ?? 0;
+  const fadeOut = layer.fadeOut ?? 0;
+  const inEffect = layer.fadeInEffect ?? "fade";
+  const outEffect = layer.fadeOutEffect ?? "fade";
+  if (fadeIn > 0 && elapsed < fadeIn) {
+    const progress = clamp01(elapsed / fadeIn);
+    alpha *= transitionMask(inEffect, progress, x, y, cols, rows);
+  }
+  const outStart = duration - fadeOut;
+  if (fadeOut > 0 && elapsed > outStart) {
+    const progress = clamp01((duration - elapsed) / fadeOut);
+    alpha *= transitionMask(outEffect, progress, x, y, cols, rows);
+  }
+  return alpha;
+}
 const fract = (v: number) => v - Math.floor(v);
 
 /** Effective Direction / Angle at time t: fixed unless the layer animates rotation. */
@@ -117,7 +158,8 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
     const angle = animatedAngle(layer, time);
     // Audio-reactive preview gain; exporters pass 0.5 for a neutral, deterministic frame.
     const audioGain = layer.audioReactive ? 0.25 + audioLevel * 1.5 : 1;
-    const gain = (layer.brightness / 100) * envelope * (kb ?? 1) * audioGain;
+    const opacity = (layer.opacity ?? 100) / 100;
+    const gain = (layer.brightness / 100) * envelope * (kb ?? 1) * audioGain * opacity;
     const hueShift = layer.hueShift + (kh ?? 0);
 
     if (layer.effect === "media") {
@@ -180,6 +222,34 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
     }
     const trails = clamp01(layer.trails);
 
+    if (layer.effect === "sprites") {
+      const spriteBuf = renderSpriteLayer(layer.spriteType || "heart", cols, rows, localT, layer.spriteCount ?? 1, layer.spriteScale ?? 1, layer.spriteSpeed ?? 1, layer.spriteDirection ?? "right");
+      if (!spriteBuf) continue;
+      for (let i = 0; i < cols * rows; i++) {
+        const p = i * 3, q = i * 4;
+        const a = (spriteBuf[q + 3] / 255) * gain;
+        if (a <= 0) continue;
+        const srcR = spriteBuf[q] * a, srcG = spriteBuf[q + 1] * a, srcB = spriteBuf[q + 2] * a;
+        if (layer.blend === "normal" || layer.blend === "add") {
+          if (layer.blend === "add") {
+            out[p] = clamp255(out[p] + srcR);
+            out[p + 1] = clamp255(out[p + 1] + srcG);
+            out[p + 2] = clamp255(out[p + 2] + srcB);
+          } else {
+            const inv = 1 - a;
+            out[p] = clamp255(out[p] * inv + srcR);
+            out[p + 1] = clamp255(out[p + 1] * inv + srcG);
+            out[p + 2] = clamp255(out[p + 2] * inv + srcB);
+          }
+        } else {
+          out[p] = clamp255(blendChannel(out[p], srcR, layer.blend));
+          out[p + 1] = clamp255(blendChannel(out[p + 1], srcG, layer.blend));
+          out[p + 2] = clamp255(blendChannel(out[p + 2], srcB, layer.blend));
+        }
+      }
+      continue;
+    }
+
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         let sx = x, sy = y;
@@ -190,11 +260,14 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
         const nx = cols > 1 ? sx / (cols - 1) : 0.5;
         const ny = rows > 1 ? sy / (rows - 1) : 0.5;
         const [ru, rv] = rotateUV(nx, ny, angle);
-        const { aspect, cx, cy, r } = polarCoords(nx, ny, cols, rows);
+        const effectiveT = (layer.direction === "reverse" || layer.direction === "left" || layer.direction === "up" || layer.direction === "in" || layer.direction === "ccw") ? -localT : localT;
+        const { aspect, cx, cy, r } = polarCoords(ru, rv, cols, rows);
         const ctx: ShaderContext = {
-          x: sx, y: sy, nx, ny, t: localT, w: cols, h: rows, aspect, cx, cy, r,
+          x: sx, y: sy, nx: ru, ny: rv, t: effectiveT, w: cols, h: rows, aspect, cx, cy, r,
           i: wiredIndex ? wiredIndex[y * cols + x].index : y * cols + x,
-          density: layer.density, angle,
+          density: layer.scale ?? layer.density,
+          angle: 0,
+          direction: layer.direction ?? "normal",
           sparkleDensity: layer.sparkleDensity ?? 6, sparkleRate: layer.sparkleRate ?? 9,
           expression: layer.expression,
         };
@@ -213,7 +286,7 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
           }
         }
         if (intensity <= 0) continue;
-        const value = intensity * gain;
+        const value = intensity * gain * transitionAlpha(layer, elapsed, layer.duration, x, y, cols, rows);
         const [cr, cg, cb] = layerColor(layer, ru, rv, intensity, hueShift);
         const p = (y * cols + x) * 3;
         out[p] = clamp255(blendChannel(out[p], cr * value, layer.blend));
@@ -265,6 +338,7 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
             w: lineW, h: lineH, aspect, cx, cy, r,
             i: wiredIndex ? wiredIndex[y * cols + x].index : y * cols + x,
             density: line.density, angle: line.angle,
+            direction: (line as { direction?: string }).direction ?? "normal",
             sparkleDensity: line.sparkleDensity ?? 6, sparkleRate: line.sparkleRate ?? 9,
           });
           if (intensity <= 0) continue;
@@ -278,6 +352,8 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
     }
   }
 
+  const dotLayer = project.layers.find((l) => l.dotParams?.enabled);
+  if (dotLayer?.dotParams) applyAccentDots(out, cols, rows, time, dotLayer.dotParams, dotLayer.direction ?? "normal");
   const master = project.masterBrightness / 100;
   const invGamma = 1 / Math.max(0.1, project.gamma);
   for (let i = 0; i < out.length; i++) {

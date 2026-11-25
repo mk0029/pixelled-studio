@@ -46,7 +46,8 @@ export default function Timeline(p: Props) {
   const [snap, setSnap] = useState(true);
   const [guide, setGuide] = useState<number | null>(null);
   const PX_PER_SEC = BASE_PX_PER_SEC * zoom;
-  const width = Math.max(900, p.project.duration * PX_PER_SEC + 120);
+  const effectiveDuration = Math.max(0, ...p.project.layers.map((l) => l.startTime + l.duration));
+  const width = Math.max(900, effectiveDuration * PX_PER_SEC + 120);
 
   const patch = (id: string, value: Partial<Layer>) =>
     p.onCommit((proj) => ({
@@ -88,7 +89,7 @@ export default function Timeline(p: Props) {
             ? Math.max(0, orig.startTime + dt)
             : Math.max(0, orig.startTime + dt) +
               Math.max(0.1, orig.duration + dt);
-      const targets: number[] = [0, p.project.duration, p.time];
+      const targets: number[] = [0, effectiveDuration, p.time];
       for (const l of p.project.layers) {
         if (l.id === layer.id) continue;
         targets.push(l.startTime, l.startTime + l.duration);
@@ -152,7 +153,7 @@ export default function Timeline(p: Props) {
   const rulerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const seek = (cx: number) =>
-      p.onSeek(clamp((cx - rect.left) / PX_PER_SEC, 0, p.project.duration));
+      p.onSeek(clamp((cx - rect.left) / PX_PER_SEC, 0, Math.max(0, effectiveDuration)));
     seek(e.clientX);
     const move = (ev: PointerEvent) => seek(ev.clientX);
     const up = () => {
@@ -164,9 +165,9 @@ export default function Timeline(p: Props) {
   };
 
   const tokenStep =
-    p.project.duration > 200 ? Math.ceil(p.project.duration / 200) : 1;
+    effectiveDuration > 200 ? Math.ceil(effectiveDuration / 200) : 1;
   const tokens = [];
-  for (let t = 0; t <= p.project.duration; t += tokenStep) {
+  for (let t = 0; t <= effectiveDuration; t += tokenStep) {
     const major = tokenStep > 1 ? true : t % 5 === 0;
     tokens.push(
       <div
@@ -422,6 +423,15 @@ export default function Timeline(p: Props) {
                 className="pointer-events-none absolute bottom-0 top-0 z-[25] w-px bg-red-500 shadow-[0_0_7px_#ef4444]"
                 style={{ left: HEADER_W + p.time * PX_PER_SEC }}>
                 <span className="absolute -left-[4px] top-0 h-2 w-2 rotate-45 bg-red-500" />
+              </div>
+            )}
+            {p.project.layers.length > 0 && effectiveDuration > 0 && (
+              <div
+                className="pointer-events-none absolute bottom-0 top-0 z-[24] w-px border-l border-dashed border-zinc-400/60"
+                style={{ left: HEADER_W + effectiveDuration * PX_PER_SEC }}>
+                <span className="absolute -top-4 left-1 whitespace-nowrap font-mono text-[9px] text-zinc-500">
+                  End
+                </span>
               </div>
             )}
             {guide != null && (

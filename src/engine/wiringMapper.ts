@@ -1,4 +1,5 @@
 import { getController, type HardwareConfig } from "@/types/hardware";
+import { buildLayout } from "@/engine/layouts";
 
 export interface WiredPixel {
   x: number;
@@ -42,21 +43,38 @@ const seq = (n: number) => Array.from({ length: n }, (_, i) => i);
  */
 export function buildWiringMap(hw: HardwareConfig): WiringMap {
   const controller = getController(hw.controllerId);
-  const cols = Math.max(1, Math.round(hw.cols));
-  const rows = Math.max(1, Math.round(hw.rows));
+  let cols = Math.max(1, Math.round(hw.cols));
+  let rows = Math.max(1, Math.round(hw.rows));
   const activePorts = Math.max(1, Math.min(controller.ports, Math.round(hw.activePorts)));
+  const layoutType = hw.layoutType ?? "matrix";
   const fromTop = hw.startCorner.startsWith("top");
   const fromLeft = hw.startCorner.endsWith("left");
   const vertical = hw.routing.startsWith("vertical");
   const snake = hw.routing.endsWith("snake");
   const zChain = (hw.portChain ?? "z") === "z";
 
+  let ordered: { x: number; y: number }[] = [];
+  let ports: PortSpan[] = [];
+  const portOfAxis = new Map<number, number>();
+  let portByPixel: number[] = [];
+
+  if (layoutType !== "matrix") {
+    const layout = buildLayout(hw);
+    cols = layout.cols;
+    rows = layout.rows;
+    ordered = layout.pixels;
+    const chunk = Math.max(1, Math.ceil(ordered.length / activePorts));
+    for (let i = 0; i < activePorts; i++) {
+      const from = i * chunk;
+      const to = Math.min(ordered.length, (i + 1) * chunk);
+      ports.push({ port: i + 1, axis: "row", from, to: to - 1, pixels: to - from });
+    }
+    portByPixel = ordered.map((_, i) => Math.min(activePorts, Math.floor(i / chunk) + 1));
+  } else {
   // Balance whole columns (vertical wiring) or rows (horizontal wiring) per port.
   const axisCount = vertical ? cols : rows;
   const sizes = Array(activePorts).fill(Math.floor(axisCount / activePorts)) as number[];
   for (let i = 0; i < axisCount % activePorts; i++) sizes[i]++;
-  const portOfAxis = new Map<number, number>();
-  const ports: PortSpan[] = [];
   let cursor = 0;
   sizes.forEach((size, i) => {
     ports.push({ port: i + 1, axis: vertical ? "column" : "row", from: cursor, to: cursor + size - 1, pixels: 0 });
@@ -64,7 +82,7 @@ export function buildWiringMap(hw: HardwareConfig): WiringMap {
     cursor += size;
   });
 
-  const ordered: { x: number; y: number }[] = [];
+  ordered = [];
   const emitVertical = (axes: number[], restart: boolean) => {
     axes.forEach((x, ci) => {
       const down = snake && !restart ? (ci % 2 === 0 ? fromTop : !fromTop) : fromTop;
@@ -93,10 +111,12 @@ export function buildWiringMap(hw: HardwareConfig): WiringMap {
     }
   }
 
+  }
   const local = new Map<number, number>();
   const pixels: WiredPixel[] = ordered.map((p, index) => {
-    const axis = vertical ? p.x : p.y;
-    const port = portOfAxis.get(axis) ?? 1;
+    const port = layoutType !== "matrix"
+      ? (portByPixel[index] ?? 1)
+      : (portOfAxis.get(vertical ? p.x : p.y) ?? 1);
     const localIndex = local.get(port) ?? 0;
     local.set(port, localIndex + 1);
     const span = ports[port - 1];

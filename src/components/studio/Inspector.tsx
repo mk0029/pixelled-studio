@@ -114,7 +114,7 @@ export default function Inspector(p: Props) {
             <section className="space-y-3">
               {slider("Brightness", l.brightness, 0, 100, 1, (v) => p.onLayer({ brightness: v }), "%")}
               {l.effect !== "media" && slider("Speed", l.speed < 0.2 ? 0.2 : l.speed, 0.2, 3, 0.1, (v) => p.onLayer({ speed: Math.max(0.2, v) }), "×")}
-              {l.effect !== "media" && slider("Density / Scale", l.density, 0.1, 5, 0.1, (v) => p.onLayer({ density: Math.max(0.1, Math.min(5, v)) }), "×")}
+              {l.effect !== "media" && slider("Density / Scale", l.scale ?? l.density, 0.1, 5, 0.1, (v) => p.onLayer({ scale: Math.max(0.1, Math.min(5, v)) }), "×")}
               {l.effect !== "media" && slider("Direction / Angle", l.angle, 0, 360, 1, (v) => p.onLayer({ angle: v }), "°")}
               {l.effect !== "media" && angleChips(l.angle, (v) => p.onLayer({ angle: v }))}
               {l.effect !== "media" && (
@@ -190,6 +190,12 @@ export default function Inspector(p: Props) {
                 {slider("Height", l.mediaScaleY ?? l.mediaScale ?? 1, 0.1, 2, 0.05, (v) => p.onLayer({ mediaScaleY: v }), "×")}
                 {slider("Offset X", l.mediaOffsetX ?? 0, -Math.max(1, p.project.hardware.cols), Math.max(1, p.project.hardware.cols), 1, (v) => p.onLayer({ mediaOffsetX: v }), " px")}
                 {slider("Offset Y", l.mediaOffsetY ?? 0, -Math.max(1, p.project.hardware.rows), Math.max(1, p.project.hardware.rows), 1, (v) => p.onLayer({ mediaOffsetY: v }), " px")}
+                {slider("Rotation", l.mediaRotation ?? 0, 0, 360, 1, (v) => p.onLayer({ mediaRotation: v }), "°")}
+                <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                  <input type="checkbox" checked={!!l.mediaAutoRotate} onChange={(e) => p.onLayer({ mediaAutoRotate: e.target.checked })} />
+                  Auto-rotate (spin over time)
+                </label>
+                {l.mediaAutoRotate && slider("Auto-rotate speed", l.mediaRotateSpeed ?? 60, -360, 360, 5, (v) => p.onLayer({ mediaRotateSpeed: v }), "°/s")}
                 <div className="flex flex-wrap gap-2">
                   <label className="flex items-center gap-1.5 text-[11px] text-zinc-400">
                     <input type="checkbox" checked={l.mediaFlipX ?? false} onChange={(e) => p.onLayer({ mediaFlipX: e.target.checked })} />

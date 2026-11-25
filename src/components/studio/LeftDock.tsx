@@ -2,9 +2,11 @@
 
 import { useRef, useState, useMemo } from "react";
 import { EFFECTS, type EffectId } from "@/types/project";
+import { SANITY_EFFECTS } from "@/lib/sanityEffects";
 import { MATH_EFFECTS } from "@/engine/mathCatalog";
 import { PRESETS, type Preset } from "@/engine/presetLibrary";
 import { Icon } from "./icons";
+import MiniPresetCanvas from "./MiniPresetCanvas";
 
 type Tab = "math" | "presets" | "effects" | "media";
 
@@ -12,7 +14,7 @@ interface Props {
   onAdd: (effect: EffectId, name?: string) => void;
   onAddPreset: (preset: Preset) => void;
   onImportMedia: (file: File, onStatus: (message: string) => void) => Promise<void>;
-  width: number;
+  width: number | string;
 }
 
 export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: Props) {
@@ -37,6 +39,29 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
 
   const effectItems = useMemo(() => EFFECTS.filter((e) =>
     e.name.toLowerCase().includes(q) || e.detail.toLowerCase().includes(q)), [q]);
+
+  const sanityItems = useMemo(() => SANITY_EFFECTS.filter((e) =>
+    e.name.toLowerCase().includes(q) || e.file.toLowerCase().includes(q)), [q]);
+
+  const addSanityEffect = async (e: (typeof SANITY_EFFECTS)[number]) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(`Loading ${e.name}…`);
+      const res = await fetch(e.url);
+      if (!res.ok) throw new Error(`download failed (${res.status})`);
+      const file = new File([await res.blob()], e.file, {
+        type: res.headers.get("content-type") || "",
+      });
+      await onImportMedia(file, setStatus);
+    } catch (err) {
+      setError(`${e.name}: ${err instanceof Error ? err.message : "import failed"}`);
+    } finally {
+      setStatus("");
+      setBusy(false);
+    }
+  };
 
   const categories = tab === "math"
     ? ["All", ...Array.from(new Set(MATH_EFFECTS.map((e) => e.category)))]
@@ -120,7 +145,7 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
             {presetItems.map((pr) => (
               <button key={pr.id} onClick={() => onAddPreset(pr)} title={pr.description}
                 className="flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-left hover:border-teal-500/60">
-                <span className="h-6 w-6 shrink-0 rounded" style={{ background: (pr.params.color as string) || "#38e1d4" }} />
+                <MiniPresetCanvas preset={pr} size={24} />
                 <span className="min-w-0 flex-1 truncate text-[9px] text-zinc-300">{pr.name}</span>
               </button>
             ))}
@@ -140,7 +165,9 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
           </div>
         ) : (
           <div className="space-y-1">
-            {["Motion", "Patterns", "Math & Logic", "Text & Media", "LEDEdit FX"].map((group) => {
+            {status && <div className="truncate text-[10px] text-teal-300/80">{status}</div>}
+            {error && <div className="rounded border border-red-500/30 bg-red-500/[.08] px-2 py-1.5 text-[10px] leading-snug text-red-300">{error}</div>}
+            {["Motion", "Patterns", "Math & Logic", "Text & Media"].map((group) => {
               const items = effectItems.filter((e) => e.group === group);
               if (!items.length) return null;
               return (
@@ -161,6 +188,23 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
                 </div>
               );
             })}
+            {sanityItems.length > 0 && (
+              <div className="mb-3">
+                <div className="label mb-1.5 px-1">Online FX</div>
+                <div className="space-y-1">
+                  {sanityItems.map((e) => (
+                    <button key={e.id} onClick={() => void addSanityEffect(e)} title={e.url}
+                      className="group flex w-full items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-left hover:border-teal-500/60 hover:bg-zinc-900">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-zinc-900 font-mono text-[13px] text-teal-400 group-hover:bg-teal-500/10">☁</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11px] font-medium text-zinc-200">{e.name}</span>
+                        <span className="block truncate text-[9px] text-zinc-600">{e.file}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

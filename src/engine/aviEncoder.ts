@@ -72,10 +72,18 @@ export async function exportAviUncompressed(project: Project, map: WiringMap, op
     if (i % 4 === 3) await tick();
   }
 
+  download(new Blob([buildAviUncompressedBytes(frames, W, H, fps)], { type: "video/x-msvideo" }),
+    `${safeName(project.name)}_uncompressed.avi`);
+}
+
+/** Pure AVI builder, shared with the export worker. Frames are bottom-up BGR24. */
+export function buildAviUncompressedBytes(frames: Uint8Array[], width: number, height: number, fps: number): Uint8Array<ArrayBuffer> {
+  if (!frames.length) throw new Error("No frames to write");
+  const W = width; const H = height; const total = frames.length;
+  const frameSize = frames[0].length;
+  if (frames.some((f) => f.length !== frameSize)) throw new Error("All AVI frames must have the same size");
+
   const moviData = 4 + frames.reduce((sum, f) => sum + 8 + f.length + (f.length & 1), 0);
-  const moviListSize = 4 + moviData;
-  const hdrlSize = 4 + (4 + 56) + (4 + 56 + 4 + 40); // avih + strl(strh+strf)
-  // avih 56, strh 56, strf 40
   const riffSize = 4 + (8 + 4 + 56 + 8 + 4 + 56 + 8 + 40) + (8 + moviData) + (8 + total * 16);
   const file = new Uint8Array(8 + riffSize);
   const view = new DataView(file.buffer);
@@ -85,27 +93,25 @@ export async function exportAviUncompressed(project: Project, map: WiringMap, op
   const u16 = (v: number) => { view.setUint16(pos, v & 0xffff, true); pos += 2; };
 
   fourcc("RIFF"); u32(riffSize); fourcc("AVI ");
-  // hdrl
   fourcc("LIST"); u32(4 + 56 + 8 + 4 + 56 + 8 + 40); fourcc("hdrl");
   fourcc("avih"); u32(56);
-  u32(Math.round(1e6 / fps));   // dwMicroSecPerFrame
-  u32(W * H * 3 * fps);         // dwMaxBytesPerSec
-  u32(0);                       // dwPaddingGranularity
-  u32(0x10);                    // dwFlags (AVIF_HASINDEX)
-  u32(total);                   // dwTotalFrames
-  u32(0);                       // dwInitialFrames
-  u32(1);                       // dwStreams
-  u32(frameSize);               // dwSuggestedBufferSize
+  u32(Math.round(1e6 / fps));
+  u32(W * H * 3 * fps);
+  u32(0);
+  u32(0x10);
+  u32(total);
+  u32(0);
+  u32(1);
+  u32(frameSize);
   u32(W); u32(H);
-  u32(0); u32(0); u32(0); u32(0); // dwReserved
+  u32(0); u32(0); u32(0); u32(0);
 
-  // strl
   fourcc("LIST"); u32(4 + 56 + 8 + 40); fourcc("strl");
   fourcc("strh"); u32(56);
-  fourcc("vids"); fourcc("DIB "); // handler
+  fourcc("vids"); fourcc("DIB ");
   u32(0); u16(0); u16(0);
   u32(0);
-  u32(1); u32(fps);            // dwScale, dwRate
+  u32(1); u32(fps);
   u32(0); u32(total);
   u32(frameSize);
   u32(0xffffffff); u32(0);
@@ -114,12 +120,11 @@ export async function exportAviUncompressed(project: Project, map: WiringMap, op
   fourcc("strf"); u32(40);
   u32(40); u32(W); u32(H);
   u16(1); u16(24);
-  u32(0); // BI_RGB
+  u32(0);
   u32(frameSize);
   u32(0); u32(0);
   u32(0); u32(0);
 
-  // movi
   fourcc("LIST"); u32(moviData); fourcc("movi");
   const moviBase = pos - 4;
   const offsets: number[] = [];
@@ -131,7 +136,6 @@ export async function exportAviUncompressed(project: Project, map: WiringMap, op
     if (f.length & 1) file[pos++] = 0;
   }
 
-  // idx1
   fourcc("idx1"); u32(total * 16);
   for (let i = 0; i < total; i++) {
     fourcc("00db");
@@ -139,6 +143,5 @@ export async function exportAviUncompressed(project: Project, map: WiringMap, op
     u32(offsets[i]);
     u32(frames[i].length);
   }
-
-  download(new Blob([file], { type: "video/x-msvideo" }), `${safeName(project.name)}_uncompressed.avi`);
+  return file;
 }

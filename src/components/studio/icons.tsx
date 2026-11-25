@@ -33,6 +33,8 @@ const PATHS: Record<string, ReactNode> = {
   redo: <><path d="M15 7l5 5-5 5M20 12H10a6 6 0 000 12" /></>,
   sliders: <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" fill="#09090b" /><circle cx="15" cy="12" r="2" fill="#09090b" /><circle cx="8" cy="18" r="2" fill="#09090b" /></>,
   chevron: <path d="M6 9l6 6 6-6" />,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
   warning: <><path d="M12 3L2 21h20L12 3zM12 9v5M12 18v.5" /></>,
   wifi: <><path d="M2 8a16 16 0 0120 0M5 12a11 11 0 0114 0M9 16a5 5 0 016 0" /><circle cx="12" cy="20" r="1" fill="currentColor" /></>,
   check: <path d="M4 12l5 5L20 6" />,

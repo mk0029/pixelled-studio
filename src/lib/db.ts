@@ -1,17 +1,25 @@
 import type { Project } from "@/types/project";
+import type { ControllerBinaryProfile } from "@/engine/codecs/ledCodec";
 
 const DB_NAME = "tohran-led-studio";
 const STORE = "projects";
 const LIBRARY = "library";
+const MEDIA = "media";
+const LED_FRAMES = "ledFrames";
+const LED_PROFILES = "ledProfiles";
 const KEY = "current";
+const DB_VERSION = 5;
 
-function open(): Promise<IDBDatabase> {
+function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(LIBRARY)) db.createObjectStore(LIBRARY);
+      if (!db.objectStoreNames.contains(MEDIA)) db.createObjectStore(MEDIA);
+if (!db.objectStoreNames.contains(LED_FRAMES)) db.createObjectStore(LED_FRAMES);
+if (!db.objectStoreNames.contains(LED_PROFILES)) db.createObjectStore(LED_PROFILES);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -19,15 +27,15 @@ function open(): Promise<IDBDatabase> {
 }
 
 function tx<T>(store: string, mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return open().then((db) => new Promise<T>((resolve, reject) => {
+  return openDb().then((db) => new Promise<T>((resolve, reject) => {
     const req = run(db.transaction(store, mode).objectStore(store));
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   }));
 }
 
-function write(store: string, value: unknown, key?: string): Promise<void> {
-  return open().then((db) => new Promise<void>((resolve, reject) => {
+function write(store: string, value: unknown, key?: IDBValidKey): Promise<void> {
+  return openDb().then((db) => new Promise<void>((resolve, reject) => {
     const t = db.transaction(store, "readwrite");
     t.objectStore(store).put(value, key);
     t.oncomplete = () => resolve();
@@ -44,7 +52,7 @@ export function saveProject(project: Project): Promise<void> {
 }
 
 export function deleteCurrentProject(): Promise<void> {
-  return open().then((db) => new Promise<void>((resolve, reject) => {
+  return openDb().then((db) => new Promise<void>((resolve, reject) => {
     const t = db.transaction(STORE, "readwrite");
     t.objectStore(STORE).delete(KEY);
     t.oncomplete = () => resolve();
@@ -52,7 +60,6 @@ export function deleteCurrentProject(): Promise<void> {
   }));
 }
 
-/** Multiple named projects live in IndexedDB; localStorage keeps only their small index. */
 export function saveLibraryProject(project: Project): Promise<void> {
   return write(LIBRARY, project, project.id);
 }
@@ -62,9 +69,100 @@ export function loadLibraryProject(id: string): Promise<Project | null> {
 }
 
 export function deleteLibraryProject(id: string): Promise<void> {
-  return open().then((db) => new Promise<void>((resolve, reject) => {
+  return openDb().then((db) => new Promise<void>((resolve, reject) => {
     const t = db.transaction(LIBRARY, "readwrite");
     t.objectStore(LIBRARY).delete(id);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  }));
+}
+
+// Phase 0 storage helpers
+export async function listProjects(): Promise<Project[]> {
+  return tx<Project[]>(LIBRARY, "readonly", (s) => s.getAll()).then((v) => v ?? []);
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  if (id === KEY) {
+    await deleteCurrentProject();
+    return;
+  }
+  await deleteLibraryProject(id);
+}
+
+export async function saveMediaBlob(key: string, blob: Blob): Promise<void> {
+  await write(MEDIA, blob, key);
+}
+
+export async function loadMediaBlob(key: string): Promise<Blob | null> {
+  return tx<Blob | undefined>(MEDIA, "readonly", (s) => s.get(key)).then((v) => v ?? null);
+}
+
+export async function deleteMediaBlob(key: string): Promise<void> {
+  await openDb().then((db) => new Promise<void>((resolve, reject) => {
+    const t = db.transaction(MEDIA, "readwrite");
+    t.objectStore(MEDIA).delete(key);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  }));
+}
+
+export async function migrateLocalStorageProjects(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem("tohran-project");
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Project;
+    if (parsed?.layers && parsed?.hardware) {
+      await saveLibraryProject(parsed);
+      await saveProject(parsed);
+      localStorage.removeItem("tohran-project");
+    }
+  } catch {
+    // Ignore malformed legacy data.
+  }
+}
+
+// Compact decoded .led frame buffers (Uint8Array chunks). Never use localStorage for these.
+export async function saveLedFrameChunk(key: string, chunk: Uint8Array): Promise<void> {
+  await write(LED_FRAMES, chunk, key);
+}
+
+export async function loadLedFrameChunk(key: string): Promise<Uint8Array | null> {
+  return tx<Uint8Array | undefined>(LED_FRAMES, "readonly", (s) => s.get(key)).then((v) => v ?? null);
+}
+
+export async function deleteLedFrameChunk(key: string): Promise<void> {
+  await openDb().then((db) => new Promise<void>((resolve, reject) => {
+    const t = db.transaction(LED_FRAMES, "readwrite");
+    t.objectStore(LED_FRAMES).delete(key);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  }));
+}
+
+export async function listLedFrameChunks(): Promise<string[]> {
+  return openDb().then((db) => new Promise<string[]>((resolve, reject) => {
+    const req = db.transaction(LED_FRAMES, "readonly").objectStore(LED_FRAMES).getAllKeys();
+    req.onsuccess = () => resolve((req.result as IDBValidKey[]).map(String));
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+// Probed controller profiles. Stored in IndexedDB so they survive reloads.
+export async function saveLedProfile(profile: ControllerBinaryProfile): Promise<void> {
+  if (!profile.id?.trim()) throw new Error("Profile needs an id");
+  await write(LED_PROFILES, profile, profile.id);
+}
+
+export async function listLedProfiles(): Promise<ControllerBinaryProfile[]> {
+  return tx<ControllerBinaryProfile[]>(LED_PROFILES, "readonly", (s) => s.getAll()).then((v) => v ?? []);
+}
+
+export async function deleteLedProfile(id: string): Promise<void> {
+  await openDb().then((db) => new Promise<void>((resolve, reject) => {
+    const t = db.transaction(LED_PROFILES, "readwrite");
+    t.objectStore(LED_PROFILES).delete(id);
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   }));

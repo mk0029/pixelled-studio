@@ -1,5 +1,7 @@
 import type { WiringMap } from "./wiringMapper";
 import { parseSfx } from "./sfxParser";
+import { decodeLedBuffer } from "./codecs/ledDecoder";
+import { decodeLedBuffer as decodeWithProfile, type ControllerBinaryProfile } from "./codecs/ledCodec";
 
 export interface ImportedMedia {
   src: string;
@@ -166,6 +168,7 @@ export async function importSwf(
   projectDuration: number,
   projectFps: number,
   onStatus?: ImportStatus,
+  signal?: AbortSignal,
 ): Promise<ImportedMedia> {
   onStatus?.("Loading Flash player…");
   const RufflePlayer = await loadRuffle();
@@ -173,7 +176,10 @@ export async function importSwf(
   overlay.style.cssText = "position:fixed;inset:0;z-index:90;display:grid;place-items:center;background:rgba(0,0,0,.72)";
   overlay.innerHTML = `
     <div style="width:min(90vw,620px);border:1px solid #3f3f46;border-radius:12px;background:#09090b;padding:12px;box-shadow:0 24px 80px #000">
-      <div style="color:#e4e4e7;font:600 12px/1.3 ui-sans-serif,system-ui;margin-bottom:8px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;color:#e4e4e7;font:600 12px/1.3 ui-sans-serif,system-ui;margin-bottom:8px">
+        <div>Importing ${typeof source === "string" ? source.split("/").pop() ?? source : source.name}</div>
+        <button id="swf-cancel" style="width:24px;height:24px;border:1px solid #3f3f46;border-radius:6px;background:#18181b;color:#e4e4e7;cursor:pointer;font-size:16px;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">×</button>
+      </div>
       <div style="background:#000;border-radius:6px;overflow:hidden" data-stage></div>
       <div style="height:4px;background:#27272a;border-radius:99px;margin-top:10px;overflow:hidden">
         <div style="height:100%;width:0;background:#2dd4bf;transition:width .1s" data-bar></div>
@@ -186,10 +192,22 @@ export async function importSwf(
   stage.style.aspectRatio = `${cols} / ${rows}`;
   const bar = overlay.querySelector("[data-bar]") as HTMLElement;
   const statusEl = overlay.querySelector("[data-status]") as HTMLElement;
+  const cancelBtn = overlay.querySelector("#swf-cancel") as HTMLButtonElement | null;
+  let cancelled = false;
   const setStatus = (text: string) => {
     statusEl.textContent = text;
     onStatus?.(text);
   };
+  const abort = () => {
+    cancelled = true;
+    setStatus("Cancelled.");
+    if (cancelBtn) {
+      cancelBtn.setAttribute("disabled", "true");
+      cancelBtn.textContent = "✓";
+    }
+  };
+  cancelBtn?.addEventListener("click", abort);
+  signal?.addEventListener("abort", abort, { once: true });
 
   document.body.appendChild(overlay);
   const url = typeof source === "string" ? source : URL.createObjectURL(source);
@@ -247,7 +265,7 @@ export async function importSwf(
       // Watchdog: a background tab can suspend rAF, and the overlay must not hang forever.
       const watchdog = setTimeout(finish, (seconds + 5) * 1000);
       const tick = (now: number) => {
-        if (stopped) return;
+        if (stopped || cancelled) return;
         const elapsed = (now - start) / 1000;
         while (frames.length < total && elapsed >= frames.length * interval) {
           ctx.clearRect(0, 0, cols, rows);
@@ -261,11 +279,13 @@ export async function importSwf(
       };
       requestAnimationFrame(tick);
     });
+    if (cancelled) throw new DOMException("Import cancelled", "AbortError");
     player.pause();
     if (!frames.length) throw new Error("No SWF frames were captured");
     setStatus("Packing frames…");
     return { src: packFrames(frames, cols, rows), frames: frames.length, fps: captureFps, type: "swf" };
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new Error(error instanceof Error ? error.message : "Could not import the SWF");
   } finally {
     try { player?.pause?.(); } catch { /* ignore */ }
@@ -303,43 +323,116 @@ export async function importLed(
   rows: number,
   fps: number,
   onStatus?: ImportStatus,
+  options?: Record<string, unknown>,
 ): Promise<ImportedMedia> {
-  const files = await ledFiles(buffer);
-  const primary = files[0].data;
-  if (String.fromCharCode(...primary.subarray(0, 7)) !== "rzbv001") {
-    throw new Error("Not an rzbv001 .led file");
-  }
-  // This app's writer always adds a fixed offset to every channel.
-  const off = 0xe3;
-  const counted = ((primary[0x0c] << 8) | primary[0x0d]) >>> 0;
-  if (!counted) throw new Error("The .led file has no frames");
-  const step = Math.max(1, Math.ceil(counted / MAX_FRAMES));
-  const indices: number[] = [];
-  for (let i = 0; i < counted && indices.length < MAX_FRAMES; i += step) indices.push(i);
+  const bytes = new Uint8Array(buffer);
+  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
 
-  const portPixels = new Map<number, ReturnType<typeof map.pixels.filter>>();
-  for (const file of files) {
-    portPixels.set(file.port, map.pixels
-      .filter((p) => p.port === file.port && p.localIndex < LED_SLOTS)
-      .sort((a, b) => a.localIndex - b.localIndex));
+  let allFrames: Uint8Array[] = [];
+  let decodedFps = fps;
+
+  if (isZip) {
+    onStatus?.("Extracting .led files…");
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(buffer);
+    const entries: { port: number; data: Uint8Array }[] = [];
+    for (const [name, entry] of Object.entries(zip.files)) {
+      if (entry.dir || !name.toLowerCase().endsWith(".led")) continue;
+      const port = Number(name.match(/(\\d+)\\.led$/i)?.[1] ?? entries.length + 1);
+      entries.push({ port, data: await entry.async("uint8array") });
+    }
+    if (!entries.length) throw new Error("The ZIP does not contain any .led files");
+    entries.sort((a, b) => a.port - b.port);
+
+    // Ownership map: canvas index -> port.
+    const portOfPixel = new Map<number, number>();
+    const portPixels = new Map<number, typeof map.pixels>();
+    for (const p of map.pixels) {
+      portOfPixel.set(p.y * cols + p.x, p.port);
+      if (!portPixels.has(p.port)) portPixels.set(p.port, []);
+      portPixels.get(p.port)!.push(p);
+    }
+
+    const decodedByPort = new Map<number, ReturnType<typeof decodeLedBuffer>>();
+    for (const entry of entries) {
+      onStatus?.(`Decoding port ${entry.port}…`);
+      const pp = portPixels.get(entry.port) ?? [];
+      const synthMap = { pixels: pp, ports: [], zLinks: [], warnings: [], totalPixels: pp.length } as unknown as WiringMap;
+      const res = decodeLedBuffer(entry.data.buffer.slice(entry.data.byteOffset, entry.data.byteOffset + entry.data.byteLength) as ArrayBuffer, {
+        wiringMap: synthMap,
+        pixelCount: pp.length,
+        cols,
+        rows,
+        channels: 3,
+        fps,
+        targetFps: fps,
+        ...(options ?? {}),
+      });
+      if (!res.ok || !res.frames?.length) throw new Error(res.error || `No frames in port ${entry.port}`);
+      decodedByPort.set(entry.port, res);
+      decodedFps = res.fps ?? decodedFps;
+    }
+
+    const first = decodedByPort.values().next().value!;
+    const frameCount = first.frames!.length;
+    for (let f = 0; f < frameCount; f++) {
+      onStatus?.(`Decoding .led frame ${f + 1}/${frameCount}…`);
+      const combined = new Uint8Array(cols * rows * 4);
+      for (let i = 0; i < cols * rows; i++) combined[i * 4 + 3] = 255;
+      for (const [port, res] of decodedByPort) {
+        const frame = res.frames![Math.min(f, res.frames!.length - 1)];
+        // Copy pixels owned by this port from the decoded frame.
+        for (let i = 0; i < cols * rows; i++) {
+          if (portOfPixel.get(i) !== port) continue;
+          const o = i * 4;
+          combined[o] = frame[o];
+          combined[o + 1] = frame[o + 1];
+          combined[o + 2] = frame[o + 2];
+          combined[o + 3] = frame[o + 3] || 255;
+        }
+      }
+      allFrames.push(combined);
+      if (allFrames.length % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+  } else {
+    onStatus?.("Decoding .led…");
+    const profile = options?.profile as ControllerBinaryProfile | undefined;
+    const decoded = profile
+      ? decodeWithProfile(new Uint8Array(buffer), { profile, width: Number(options?.width ?? cols), height: Number(options?.height ?? rows), fps })
+      : decodeLedBuffer(buffer, {
+          wiringMap: map,
+          pixelCount: map.totalPixels,
+          cols,
+          rows,
+          channels: 3,
+          fps,
+          targetFps: fps,
+          ...(options ?? {}),
+        });
+    if (!decoded.ok || !decoded.frames?.length) {
+      throw new Error(("error" in decoded && decoded.error) || "No .led frames could be decoded");
+    }
+    allFrames = decoded.frames;
+    decodedFps = decoded.fps ?? fps;
   }
+
+  if (!allFrames.length) throw new Error("No .led frames could be decoded");
+
+  const step = Math.max(1, Math.ceil(allFrames.length / MAX_FRAMES));
+  const indices: number[] = [];
+  for (let i = 0; i < allFrames.length && indices.length < MAX_FRAMES; i += step) indices.push(i);
 
   const frames: ImageData[] = [];
-  for (const frameIndex of indices) {
+  for (const idx of indices) {
     onStatus?.(`Decoding .led frame ${frames.length + 1}/${indices.length}…`);
+    const buf = allFrames[idx];
     const image = new ImageData(cols, rows);
-    for (const file of files) {
-      const pixels = portPixels.get(file.port) ?? [];
-      const base = 512 + frameIndex * LED_FRAME_BYTES;
-      if (base + LED_FRAME_BYTES > file.data.length) continue;
-      for (const px of pixels) {
-        const q = base + px.localIndex * 3;
-        const o = (px.y * cols + px.x) * 4;
-        image.data[o] = (file.data[q] - off) & 0xff;
-        image.data[o + 1] = (file.data[q + 1] - off) & 0xff;
-        image.data[o + 2] = (file.data[q + 2] - off) & 0xff;
-        image.data[o + 3] = 255;
-      }
+    for (let i = 0; i < cols * rows; i++) {
+      const o = i * 4;
+      image.data[o] = buf[o];
+      image.data[o + 1] = buf[o + 1];
+      image.data[o + 2] = buf[o + 2];
+      image.data[o + 3] = buf[o + 3] || 255;
     }
     frames.push(image);
     if (frames.length % 4 === 0) await new Promise((r) => setTimeout(r, 0));
@@ -348,7 +441,7 @@ export async function importLed(
   return {
     src: packFrames(frames, cols, rows),
     frames: frames.length,
-    fps: Math.round(clamp(fps, 1, 60)),
+    fps: Math.round(clamp(decodedFps, 1, 60)),
     type: "led",
   };
 }

@@ -1,5 +1,12 @@
 # LedEdit 2014 — REA findings
 
+> Update 2026-11-23: §7's additive-offset claim was not proven. The verified
+> container codec and current evidence are in `docs/LEDEDIT_2014_FORMAT.md`
+> and `src/engine/codecs/ledEdit2014Codec.ts`. A known-content 114-frame rainbow
+> export confirmed `decoded = raw - mask` and an interleaved 8-bit RGB payload
+> (3 bytes/pixel); byte-exact decode→RGB→encode round-tripping now works. Still
+> unknown: mask derivation from the header salt and the physical LED wiring order.
+
 Target: `C:\LedEdit 2014` (LedEdit.exe 2,469,888 bytes, sha256 `a2af3917af6ce8d472c8592566ec738e52abf379da55fbe1cdce2c3085d66f64`).
 Evidence: REA `inspect_managed_artifact` (ev_bbe5f56d…, ev_2e832d35…), direct PE/format parsing of shipped files, extracted .NET satellite resources, and the user's own exported `.led` files.
 
@@ -85,10 +92,10 @@ Unknown/blocked: application algorithms (VMProtect-virtualised, so an unpacked a
 | Sectors 1..6N | **N frames of 6 sectors = 3072 B**. Sectors 4 and 5 of every frame are constant = the file's per-export "off" byte (0xE3, 0x59 or 0x49 in the samples). Sectors 0–3 carry data. |
 | Final 40 sectors | All-zero trailer. `(file_size/512 - 41) / 6` equals the header frame count for every non-empty sample, exactly. |
 
-- The per-frame constant byte is **per export**, not global — same pattern in all frames of a file, different between files. Treating it as an additive offset (`decoded = (byte - constant) mod 256`) yields plausible intensity values (0, 0x40, 0x80, 0xC0, 0xFF dominate); plain XOR yields less plausible masks. This matches the community live-protocol finding that full-black frames vary per session and that the offset must be subtracted.
+- The per-frame constant byte is **per export**, not global — same pattern in all frames of a file, different between files. Subtraction is now **confirmed** by a known-content rainbow export (mask `0xB5`): decoded bytes form clean 8-bit RGB triples `(0,153,255)`, `(0,236,255)`, `(0,160,255)`, `(0,0,255)` … under subtraction; XOR turns them into noise. The codec keeps XOR as an option for source compatibility only.
 - The 0x6000 (1024 LEDs/port) / 0x3000 (512 LEDs/port) code and the live salt formula `offset = (Σ salt[i]^key[i]) ^ 90` are from the Hackaday T300K notes; I could not make the header's candidate salt reproduce the file offsets exactly (two files were off by a constant 0x0C, one by more), so the exact file-offset derivation remains unconfirmed.
-- Practical consequence: a compatible writer can **reuse a known-good header/salt and its off byte**, write `frame_count` at 0x0C, encode pixel bytes as `value + off`, leave sectors 4–5 at `off`, and append 40 zero sectors. What is still unknown is the exact mapping of the 2048 data bytes/frame to ports and LEDs (likely bit-packed plane data — 3072 B/frame = 24,576 bits = 8 ports × 1024 LEDs × 3 channels, one bit per live byte). Pinning that down needs one ground-truth export: import a tiny `.tol` (one known RGB pixel), export `.led`, and diff.
+- Practical consequence: a compatible writer can **reuse a known-good header and its mask byte**, write `frame_count` at 0x0C, emit each frame as 2,048 interleaved RGB bytes (up to 682 pixels) followed by 1,024 mask bytes, then append 40 zero sectors. `encodeLedEdit2014FromPixels` in the codec does exactly this and round-trips the rainbow export byte-for-byte. What is still unknown is the physical order of the pixels and which file byte drives R/G/B on the IC; pinning that down needs one known-pixel export with a visible colour reference.
 
 ### Revised answer for the Next.js studio
 
-`.led` is **no longer "blocked"**: the container and offset scheme are known and a template-based exporter is feasible in the browser (JSZip, no backend). Keep the same export contract; add a `.led` writer once the one-pixel ground-truth mapping is confirmed. The rest of §6 stands.
+`.led` is **no longer "blocked"**: the container, mask arithmetic and RGB pixel layout are known, and a template-based writer (`encodeLedEdit2014FromPixels`) is feasible in the browser (JSZip, no backend). Keep the same export contract; wire the writer to a template-header picker. The rest of §6 stands.
