@@ -27,6 +27,7 @@ import { migrateLocalStorageProjects } from "@/lib/db";import ResizeHandle from 
 import Timeline from "./Timeline";
 import TopBar from "./TopBar";
 import TransportBar from "./TransportBar";
+import AnimationLibrary, { type LibraryAsset } from "@/components/library/AnimationLibrary";
 import StudioSettingsModal from "./StudioSettingsModal";
 import { useStudioSettings } from "@/context/StudioSettingsContext";
 
@@ -76,6 +77,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   const [modal, setModal] = useState<{ open: boolean; isNew: boolean }>({ open: false, isNew: false });
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [exportModal, setExportModal] = useState<{ open: boolean; format: ExportFormat }>({ open: false, format: "zip" });
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [fontsReady, setFontsReady] = useState(true);
 
   const zoomControlsRef = useRef<{ zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void } | null>(null);
@@ -416,6 +418,14 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadCloudAsset = useCallback((asset: LibraryAsset) => {
+    if (!asset.url) return;
+    void importAviUrl(asset.url, project.hardware.cols, project.hardware.rows)
+      .then((media) => addMedia(media, asset.title.replace(/\.[^.]+$/, ""), "character-video"))
+      .catch(() => { /* offline or unsupported AVI: keep the cloud copy available */ });
+    setLibraryOpen(false);
+  }, [addMedia, project.hardware.cols, project.hardware.rows]);
+
   const addKeyframe = useCallback(() => {
     if (!selected) return;
     patchLayer(selected.id, {
@@ -548,6 +558,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         onExport={() => setExportModal({ open: true, format: "avi" })}
+        onLibrary={() => setLibraryOpen(true)}
       />
       <input ref={importRef} type="file" accept="application/json,.json" hidden
         onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
@@ -655,6 +666,23 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
           <MotionExport key="export" open={exportModal.open} project={project} map={map} initialFormat={exportModal.format}
             fontsReady={fontsReady}
             onClose={() => setExportModal((s) => ({ ...s, open: false }))} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {libraryOpen && (
+          <motion.div className="fixed inset-0 z-40 flex justify-end bg-black/60"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setLibraryOpen(false)}>
+            <motion.aside className="flex h-full w-[min(620px,100vw)] flex-col border-l border-zinc-800 bg-zinc-950 p-4"
+              initial={{ x: 40 }} animate={{ x: 0 }} exit={{ x: 40 }}
+              onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="label">Sanity animation library</span>
+                <button className="btn btn-icon" onClick={() => setLibraryOpen(false)} aria-label="Close library">✕</button>
+              </div>
+              <AnimationLibrary compact onLoad={loadCloudAsset} />
+            </motion.aside>
+          </motion.div>
         )}
       </AnimatePresence>
       <ProjectLauncherModal

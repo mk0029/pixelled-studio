@@ -10,7 +10,8 @@
     "build": "next build && node scripts/generate-sw-assets.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "check:avi": "node scripts/check-avi.mjs"
+    "check:avi": "node scripts/check-avi.mjs",
+    "import:animations": "node --env-file=.env.local scripts/import-dl-animations.mjs"
   },
   "dependencies": {
     "@ruffle-rs/ruffle": "^0.7.1",

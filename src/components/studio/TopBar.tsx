@@ -6,6 +6,7 @@ interface Props {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onExport: () => void;
+  onLibrary: () => void;
 }
 
 export default function TopBar(p: Props) {
@@ -26,6 +27,9 @@ export default function TopBar(p: Props) {
       >
         <Icon name="instagram" size={13} />
       </a>
+      <button type="button" onClick={p.onLibrary} className="btn" title="Cloud animation library">
+        Library
+      </button>
       <button type="button" onClick={p.onExport} className="btn" title="Export">
         Export
       </button>
