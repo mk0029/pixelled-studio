@@ -182,8 +182,27 @@ export interface Layer {
   dotsDirection?: "up" | "down" | "left" | "right" | "diag-ul" | "diag-ur" | "diag-dl" | "diag-dr" | "expand" | "converge" | "bounce";
   dotsSpeed?: number;
   dotsEffect?: "solid" | "blink" | "pulse" | "chase" | "twinkle";
-  dotsColorMode?: "solid" | "dual" | "rainbow" | "cycle";
+  dotsColorMode?: "solid" | "dual" | "rainbow" | "cycle" | "single" | "palette" | "gradient";
   dotsBounce?: boolean;
+  // Custom dots control: procedural particles or hand-drawn stamp.
+  dotsGenerator?: "classic" | "particles" | "stamp";
+  dotsDistribution?: "scatter" | "starfield" | "rain" | "cluster" | "wave";
+  dotsSeed?: number;
+  dotsSizeRandom?: boolean;
+  dotsSizeMin?: number;
+  dotsSizeMax?: number;
+  dotsStampSize?: 8 | 16;
+  dotsStamp?: boolean[];
+  dotsTile?: boolean;
+  dotsParticleDirection?: "up" | "down" | "left" | "right" | "diag-ul" | "diag-ur" | "diag-dl" | "diag-dr" | "radial-out" | "radial-in" | "drift";
+  dotsParticleSpeed?: number;
+  dotsSpeedVariance?: number;
+  dotsJitter?: number;
+  dotsTrail?: number;
+  dotsWrap?: boolean;
+  dotsBlinkMode?: "none" | "sync" | "twinkle" | "sparkle";
+  dotsPalette?: string[];
+  dotsGlow?: boolean;
   spriteType?: string;
   spriteCount?: number;
   spriteScale?: number;
@@ -281,6 +300,11 @@ export interface Project {
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+/** Sparse starting stamp for the custom dot editor. */
+export function makeDotsStamp(size: 8 | 16 = 8): boolean[] {
+  return Array.from({ length: size * size }, (_, i) => i % 9 === 0);
+}
+
 export function makeLayer(effect: EffectId, index = 1): Layer {
   const meta = EFFECTS.find((e) => e.id === effect) ?? EFFECTS[0];
   return {
@@ -328,6 +352,24 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     dotsEffect: "solid",
     dotsColorMode: "solid",
     dotsBounce: false,
+    dotsGenerator: "particles",
+    dotsDistribution: "scatter",
+    dotsSeed: Math.floor(Math.random() * 1_000_000),
+    dotsSizeRandom: false,
+    dotsSizeMin: 1,
+    dotsSizeMax: 3,
+    dotsStampSize: 8,
+    dotsStamp: makeDotsStamp(8),
+    dotsTile: true,
+    dotsParticleDirection: "down",
+    dotsParticleSpeed: 30,
+    dotsSpeedVariance: 20,
+    dotsJitter: 0,
+    dotsTrail: 0,
+    dotsWrap: true,
+    dotsBlinkMode: "none",
+    dotsPalette: ["#ffffff", "#9a7cff", "#38e1d4", "#ff5c8a"],
+    dotsGlow: false,
     spriteType: "heart",
     spriteCount: 1,
     spriteScale: 1,
@@ -365,7 +407,10 @@ export function normalizeProject(project: Project): Project {
     ...project,
     hardware: { ...DEFAULT_HARDWARE, ...project.hardware },
     lineAnimations: project.lineAnimations ?? [],
-    layers: project.layers.map((l) => ({
+    layers: project.layers.map((l) => {
+      const stampSize = l.dotsStampSize === 16 ? 16 : 8;
+      const sizeMin = Math.max(1, Math.min(8, Math.round(l.dotsSizeMin ?? 1)));
+      return {
       ...l,
       sparkleDensity: l.sparkleDensity ?? 6,
       sparkleRate: l.sparkleRate ?? 9,
@@ -435,13 +480,34 @@ export function normalizeProject(project: Project): Project {
       dotsEffect: l.dotsEffect ?? "solid",
       dotsColorMode: l.dotsColorMode ?? "solid",
       dotsBounce: l.dotsBounce ?? false,
+      // Older saved layers keep their classic grid/layout behaviour.
+      dotsGenerator: l.dotsGenerator ?? "classic",
+      dotsDistribution: l.dotsDistribution ?? "scatter",
+      dotsSeed: Math.max(0, Math.floor(l.dotsSeed ?? 1)),
+      dotsSizeRandom: l.dotsSizeRandom ?? false,
+      dotsSizeMin: sizeMin,
+      dotsSizeMax: Math.max(sizeMin, Math.min(8, Math.round(l.dotsSizeMax ?? 3))),
+      dotsStampSize: stampSize,
+      dotsStamp: Array.isArray(l.dotsStamp) && l.dotsStamp.length === stampSize * stampSize
+        ? l.dotsStamp.map(Boolean) : makeDotsStamp(stampSize),
+      dotsTile: l.dotsTile ?? true,
+      dotsParticleDirection: l.dotsParticleDirection ?? "down",
+      dotsParticleSpeed: Math.max(0, Math.min(100, l.dotsParticleSpeed ?? 30)),
+      dotsSpeedVariance: Math.max(0, Math.min(100, l.dotsSpeedVariance ?? 20)),
+      dotsJitter: Math.max(0, Math.min(100, l.dotsJitter ?? 0)),
+      dotsTrail: Math.max(0, Math.min(20, Math.round(l.dotsTrail ?? 0))),
+      dotsWrap: l.dotsWrap ?? true,
+      dotsBlinkMode: l.dotsBlinkMode ?? "none",
+      dotsPalette: (l.dotsPalette?.length ? l.dotsPalette.slice(0, 4) : ["#ffffff", "#9a7cff", "#38e1d4", "#ff5c8a"]),
+      dotsGlow: l.dotsGlow ?? false,
       mediaCropX: l.mediaCropX ?? 0,
       mediaCropY: l.mediaCropY ?? 0,
       mediaCropW: l.mediaCropW ?? 0,
       mediaCropH: l.mediaCropH ?? 0,
       loop: l.loop ?? true,
       mathParams: l.mathParams ?? {},
-    })),
+      };
+    }),
   };
 }
 

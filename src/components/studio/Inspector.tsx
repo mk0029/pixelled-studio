@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BlendMode, EffectId, Layer, LineAnimation, Project, Symmetry } from "@/types/project";
-import { EFFECTS, makeLineAnimation } from "@/types/project";
+import { EFFECTS, makeDotsStamp, makeLineAnimation } from "@/types/project";
 import { validateExpression } from "@/engine/expression";
 import { audioStore, startAudio, stopAudio } from "@/engine/audio";
 import { Icon } from "./icons";
@@ -31,6 +31,78 @@ const EXPR_PRESETS: [string, string][] = [
   ["Spiral", "wave(atan2(v - 0.5, u - 0.5) / pi * 3 + r * 8 - t)"],
 ];
 
+type StampPreset = "sparse" | "diamond" | "diagonal" | "clear" | "invert";
+
+function resizeStamp(bits: boolean[], from: 8 | 16, to: 8 | 16): boolean[] {
+  const next = Array<boolean>(to * to).fill(false);
+  for (let y = 0; y < from; y++) {
+    for (let x = 0; x < from; x++) {
+      if (!bits[y * from + x]) continue;
+      if (to > from) {
+        for (let dy = 0; dy < 2; dy++) {
+          for (let dx = 0; dx < 2; dx++) next[(y * 2 + dy) * to + x * 2 + dx] = true;
+        }
+      } else {
+        next[Math.floor(y / 2) * to + Math.floor(x / 2)] = true;
+      }
+    }
+  }
+  return next;
+}
+
+function stampPreset(preset: StampPreset, size: 8 | 16, bits: boolean[]): boolean[] {
+  const next = Array<boolean>(size * size).fill(false);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      if (preset === "sparse") next[i] = i % 7 === 0;
+      else if (preset === "diamond") next[i] = Math.abs(x - (size - 1) / 2) + Math.abs(y - (size - 1) / 2) <= size / 3;
+      else if (preset === "diagonal") next[i] = x === y || x + y === size - 1;
+      else if (preset === "invert") next[i] = !bits[i];
+    }
+  }
+  return next;
+}
+
+function DotsStampEditor({ size, bits, onPatch }: { size: 8 | 16; bits: boolean[]; onPatch: (bits: boolean[]) => void }) {
+  const painting = useRef<boolean | null>(null);
+  useEffect(() => {
+    const stop = () => { painting.current = null; };
+    window.addEventListener("pointerup", stop);
+    return () => window.removeEventListener("pointerup", stop);
+  }, []);
+
+  const setCell = (i: number, value: boolean) => {
+    if (bits[i] === value) return;
+    const next = [...bits];
+    next[i] = value;
+    onPatch(next);
+  };
+
+  return (
+    <div className="inline-grid w-44 gap-[2px] rounded border border-zinc-700 bg-zinc-950 p-1 select-none"
+      style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}>
+      {bits.map((on, i) => (
+        <button key={i} type="button" aria-label={`Stamp ${i % size + 1}, ${Math.floor(i / size) + 1}`}
+          aria-pressed={on}
+          className={`aspect-square rounded-[2px] border ${on ? "border-teal-200 bg-teal-300" : "border-zinc-800 bg-zinc-900 hover:bg-zinc-800"}`}
+          onPointerDown={(e) => {
+            if (e.button !== 0 && e.button !== 2) return;
+            e.preventDefault();
+            const value = e.button === 2 ? false : !on;
+            painting.current = value;
+            setCell(i, value);
+          }}
+          onPointerEnter={(e) => {
+            if (painting.current === null || !(e.buttons & 1)) return;
+            setCell(i, painting.current);
+          }}
+          onContextMenu={(e) => e.preventDefault()} />
+      ))}
+    </div>
+  );
+}
+
 export default function Inspector(p: Props) {
   const l = p.layer;
   const lines = p.project.lineAnimations ?? [];
@@ -39,6 +111,11 @@ export default function Inspector(p: Props) {
   const [micError, setMicError] = useState("");
   const [fontScript, setFontScript] = useState<string>("all");
   const exprError = l?.effect === "custom" ? validateExpression(l.expression) : null;
+  const dotsGenerator = l?.dotsGenerator ?? "classic";
+  const stampSize: 8 | 16 = l?.dotsStampSize === 16 ? 16 : 8;
+  const stampBits = l?.dotsStamp && l.dotsStamp.length === stampSize * stampSize
+    ? l.dotsStamp : makeDotsStamp(stampSize);
+  const dotsPalette = l?.dotsPalette?.length ? l.dotsPalette : ["#ffffff", "#9a7cff", "#38e1d4", "#ff5c8a"];
 
   const toggleMic = async () => {
     if (audioStore.enabled) {
@@ -295,6 +372,131 @@ export default function Inspector(p: Props) {
             {l.effect === "dots-lines" && (
               <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
                 <div className="label">Dots / Lines layer</div>
+
+                {l.dotsMode === "dots" && (
+                  <section className="space-y-3 rounded-lg border border-cyan-500/25 bg-cyan-500/[.03] p-2.5">
+                    <div className="label">Dots control</div>
+                    <label className="block">
+                      <div className="mb-1 label">Generator</div>
+                      <select className="field" value={dotsGenerator} onChange={(e) => p.onLayer({ dotsGenerator: e.target.value as any })}>
+                        <option value="particles">Procedural Particles</option>
+                        <option value="stamp">Custom Dot Stamp</option>
+                        <option value="classic">Classic Layout</option>
+                      </select>
+                    </label>
+
+                    {dotsGenerator === "particles" && (
+                      <>
+                        {slider("Dot count / density", l.dotsCount ?? 80, 1, 500, 1, (v) => p.onLayer({ dotsCount: v }))}
+                        <label className="block">
+                          <div className="mb-1 label">Distribution</div>
+                          <select className="field" value={l.dotsDistribution ?? "scatter"} onChange={(e) => p.onLayer({ dotsDistribution: e.target.value as any })}>
+                            <option value="scatter">Random Scatter</option>
+                            <option value="starfield">Starfield</option>
+                            <option value="rain">Falling Rain</option>
+                            <option value="cluster">Cluster / Swarm</option>
+                            <option value="wave">Wave</option>
+                          </select>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="label flex-1">Seed {l.dotsSeed ?? 1}</span>
+                          <button className="btn" onClick={() => p.onLayer({ dotsSeed: Math.floor(Math.random() * 1_000_000) })}>Randomize</button>
+                        </div>
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                          <input type="checkbox" checked={l.dotsSizeRandom ?? false} onChange={(e) => p.onLayer({ dotsSizeRandom: e.target.checked })} />
+                          Random size range
+                        </label>
+                        {l.dotsSizeRandom
+                          ? <>
+                              {slider("Min size", l.dotsSizeMin ?? 1, 1, 8, 1, (v) => p.onLayer({ dotsSizeMin: Math.min(v, l.dotsSizeMax ?? 3) }), "px")}
+                              {slider("Max size", l.dotsSizeMax ?? 3, 1, 8, 1, (v) => p.onLayer({ dotsSizeMax: Math.max(v, l.dotsSizeMin ?? 1) }), "px")}
+                            </>
+                          : slider("Dot size", l.dotsSizeMin ?? 1, 1, 8, 1, (v) => p.onLayer({ dotsSizeMin: v, dotsSizeMax: v }), "px")}
+                      </>
+                    )}
+
+                    {dotsGenerator === "stamp" && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="label flex-1">Stamp grid</span>
+                          <button className={`chip ${stampSize === 8 ? "chip-active" : ""}`} onClick={() => p.onLayer({ dotsStampSize: 8, dotsStamp: resizeStamp(stampBits, stampSize, 8) })}>8×8</button>
+                          <button className={`chip ${stampSize === 16 ? "chip-active" : ""}`} onClick={() => p.onLayer({ dotsStampSize: 16, dotsStamp: resizeStamp(stampBits, stampSize, 16) })}>16×16</button>
+                        </div>
+                        <DotsStampEditor size={stampSize} bits={stampBits} onPatch={(bits) => p.onLayer({ dotsStamp: bits })} />
+                        <div className="flex flex-wrap gap-1">
+                          {(["sparse", "diamond", "diagonal", "clear", "invert"] as StampPreset[]).map((preset) => (
+                            <button key={preset} className="chip" onClick={() => p.onLayer({ dotsStamp: stampPreset(preset, stampSize, stampBits) })}>{preset}</button>
+                          ))}
+                        </div>
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                          <input type="checkbox" checked={l.dotsTile ?? true} onChange={(e) => p.onLayer({ dotsTile: e.target.checked })} />
+                          Tile / repeat stamp across matrix
+                        </label>
+                        <p className="text-[9px] leading-snug text-zinc-600">Drag to paint, right-click to erase. Off = animate one cluster.</p>
+                      </>
+                    )}
+
+                    {dotsGenerator !== "classic" && (
+                      <>
+                        <label className="block">
+                          <div className="mb-1 label">Direction</div>
+                          <select className="field" value={l.dotsParticleDirection ?? "down"} onChange={(e) => p.onLayer({ dotsParticleDirection: e.target.value as any })}>
+                            {[
+                              ["up", "Up"], ["down", "Down"], ["left", "Left"], ["right", "Right"],
+                              ["diag-ul", "Diagonal UL"], ["diag-ur", "Diagonal UR"],
+                              ["diag-dl", "Diagonal DL"], ["diag-dr", "Diagonal DR"],
+                              ["radial-out", "Radial Out (Burst)"], ["radial-in", "Radial In"], ["drift", "Float / Drift"],
+                            ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                          </select>
+                        </label>
+                        {slider("Speed", l.dotsParticleSpeed ?? 30, 0, 100, 1, (v) => p.onLayer({ dotsParticleSpeed: v }))}
+                        {slider("Speed variance", l.dotsSpeedVariance ?? 20, 0, 100, 1, (v) => p.onLayer({ dotsSpeedVariance: v }), "%")}
+                        {slider("Jitter", l.dotsJitter ?? 0, 0, 100, 1, (v) => p.onLayer({ dotsJitter: v }), "%")}
+                        {slider("Trail length", l.dotsTrail ?? 0, 0, 20, 1, (v) => p.onLayer({ dotsTrail: v }), " px")}
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                          <input type="checkbox" checked={l.dotsWrap ?? true} onChange={(e) => p.onLayer({ dotsWrap: e.target.checked })} />
+                          Wrap at edges (off = bounce)
+                        </label>
+                        <label className="block">
+                          <div className="mb-1 label">Blink / twinkle</div>
+                          <select className="field" value={l.dotsBlinkMode ?? "none"} onChange={(e) => p.onLayer({ dotsBlinkMode: e.target.value as any })}>
+                            <option value="none">None</option>
+                            <option value="sync">Sync Blink</option>
+                            <option value="twinkle">Random Twinkle</option>
+                            <option value="sparkle">Sparkle</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <div className="mb-1 label">Color mode</div>
+                          <select className="field" value={l.dotsColorMode ?? "solid"} onChange={(e) => p.onLayer({ dotsColorMode: e.target.value as any })}>
+                            <option value="solid">Single Color</option>
+                            <option value="palette">Multi-Color Palette</option>
+                            <option value="rainbow">Rainbow Cycle</option>
+                            <option value="gradient">Position Gradient</option>
+                          </select>
+                        </label>
+                        {l.dotsColorMode === "palette" && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {dotsPalette.slice(0, 4).map((color, i) => (
+                              <input key={i} type="color" value={color} onChange={(e) => {
+                                const next = [...dotsPalette];
+                                next[i] = e.target.value;
+                                p.onLayer({ dotsPalette: next });
+                              }} />
+                            ))}
+                            {dotsPalette.length < 4 && <button className="chip" onClick={() => p.onLayer({ dotsPalette: [...dotsPalette, "#ffffff"] })}>+ color</button>}
+                            {dotsPalette.length > 2 && <button className="chip" onClick={() => p.onLayer({ dotsPalette: dotsPalette.slice(0, -1) })}>− color</button>}
+                          </div>
+                        )}
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                          <input type="checkbox" checked={l.dotsGlow ?? false} onChange={(e) => p.onLayer({ dotsGlow: e.target.checked })} />
+                          Soft glow (off = crisp LEDs)
+                        </label>
+                      </>
+                    )}
+                  </section>
+                )}
+
                 <label className="block">
                   <div className="mb-1 label">Mode</div>
                   <select className="field" value={l.dotsMode ?? "dots"} onChange={(e) => p.onLayer({ dotsMode: e.target.value as any })}>
@@ -303,6 +505,8 @@ export default function Inspector(p: Props) {
                     <option value="dashed">Dashed Lines</option>
                   </select>
                 </label>
+                {(dotsGenerator === "classic" || l.dotsMode !== "dots") && (
+                  <>
                 <label className="block">
                   <div className="mb-1 label">Layout</div>
                   <select className="field" value={l.dotsLayout ?? "grid"} onChange={(e) => p.onLayer({ dotsLayout: e.target.value as any })}>
@@ -358,6 +562,8 @@ export default function Inspector(p: Props) {
                     <option value="cycle">Auto-Cycle</option>
                   </select>
                 </label>
+                  </>
+                )}
                 <label className="block">
                   <div className="mb-1 label">Blend / Place</div>
                   <select className="field" value={l.blend ?? "add"} onChange={(e) => p.onLayer({ blend: e.target.value as any })}>
