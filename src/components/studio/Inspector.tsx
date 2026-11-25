@@ -6,6 +6,7 @@ import { EFFECTS, makeLineAnimation } from "@/types/project";
 import { validateExpression } from "@/engine/expression";
 import { audioStore, startAudio, stopAudio } from "@/engine/audio";
 import { Icon } from "./icons";
+import { FONT_FAMILIES } from "@/engine/fontFamilies";
 
 interface Props {
   project: Project;
@@ -36,6 +37,7 @@ export default function Inspector(p: Props) {
   const [micOn, setMicOn] = useState(audioStore.enabled);
   const [micBusy, setMicBusy] = useState(false);
   const [micError, setMicError] = useState("");
+  const [fontScript, setFontScript] = useState<string>("all");
   const exprError = l?.effect === "custom" ? validateExpression(l.expression) : null;
 
   const toggleMic = async () => {
@@ -113,11 +115,11 @@ export default function Inspector(p: Props) {
 
             <section className="space-y-3">
               {slider("Brightness", l.brightness, 0, 100, 1, (v) => p.onLayer({ brightness: v }), "%")}
-              {l.effect !== "media" && slider("Speed", l.speed < 0.2 ? 0.2 : l.speed, 0.2, 3, 0.1, (v) => p.onLayer({ speed: Math.max(0.2, v) }), "×")}
-              {l.effect !== "media" && slider("Density / Scale", l.scale ?? l.density, 0.1, 5, 0.1, (v) => p.onLayer({ scale: Math.max(0.1, Math.min(5, v)) }), "×")}
-              {l.effect !== "media" && slider("Direction / Angle", l.angle, 0, 360, 1, (v) => p.onLayer({ angle: v }), "°")}
-              {l.effect !== "media" && angleChips(l.angle, (v) => p.onLayer({ angle: v }))}
-              {l.effect !== "media" && (
+              {l.effect !== "media" && l.effect !== "dots-lines" && slider("Speed", l.speed < 0.2 ? 0.2 : l.speed, 0.2, 3, 0.1, (v) => p.onLayer({ speed: Math.max(0.2, v) }), "×")}
+              {l.effect !== "media" && l.effect !== "dots-lines" && slider("Density / Scale", l.scale ?? l.density, 0.1, 5, 0.1, (v) => p.onLayer({ scale: Math.max(0.1, Math.min(5, v)) }), "×")}
+              {l.effect !== "media" && l.effect !== "dots-lines" && slider("Direction / Angle", l.angle, 0, 360, 1, (v) => p.onLayer({ angle: v }), "°")}
+              {l.effect !== "media" && l.effect !== "dots-lines" && angleChips(l.angle, (v) => p.onLayer({ angle: v }))}
+              {l.effect !== "media" && l.effect !== "dots-lines" && (
                 <>
                   <label className="mt-1 flex items-center gap-2 text-[11px] text-zinc-400">
                     <input type="checkbox" checked={!!l.rotate} onChange={(e) => p.onLayer({ rotate: e.target.checked })} />
@@ -290,6 +292,85 @@ export default function Inspector(p: Props) {
               </section>
             ) : null}
 
+            {l.effect === "dots-lines" && (
+              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+                <div className="label">Dots / Lines layer</div>
+                <label className="block">
+                  <div className="mb-1 label">Mode</div>
+                  <select className="field" value={l.dotsMode ?? "dots"} onChange={(e) => p.onLayer({ dotsMode: e.target.value as any })}>
+                    <option value="dots">Dots</option>
+                    <option value="lines">Lines</option>
+                    <option value="dashed">Dashed Lines</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">Layout</div>
+                  <select className="field" value={l.dotsLayout ?? "grid"} onChange={(e) => p.onLayer({ dotsLayout: e.target.value as any })}>
+                    <option value="grid">Grid</option>
+                    <option value="checkerboard">Checkerboard</option>
+                    <option value="hstrips">Horizontal Strips</option>
+                    <option value="vstrips">Vertical Strips</option>
+                    <option value="diag">Diagonal Strips</option>
+                    <option value="border">Border / Frame</option>
+                    <option value="scatter">Random Scatter</option>
+                  </select>
+                </label>
+                {slider("Count", l.dotsCount ?? 8, 1, 64, 1, (v) => p.onLayer({ dotsCount: v }))}
+                {slider("Thickness", l.dotsThickness ?? 2, 1, 16, 1, (v) => p.onLayer({ dotsThickness: v }), "px")}
+                {slider("Length / Dash", l.dotsLength ?? 8, 1, 64, 1, (v) => p.onLayer({ dotsLength: v }), "px")}
+                {slider("Spacing / Gap", l.dotsSpacing ?? 4, 1, 32, 1, (v) => p.onLayer({ dotsSpacing: v }), "px")}
+                <label className="block">
+                  <div className="mb-1 label">Direction</div>
+                  <select className="field" value={l.dotsDirection ?? "right"} onChange={(e) => p.onLayer({ dotsDirection: e.target.value as any })}>
+                    <option value="up">Up</option>
+                    <option value="down">Down</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                    <option value="diag-ul">Diag Up-Left</option>
+                    <option value="diag-ur">Diag Up-Right</option>
+                    <option value="diag-dl">Diag Down-Left</option>
+                    <option value="diag-dr">Diag Down-Right</option>
+                    <option value="expand">Center Out (Expand)</option>
+                    <option value="converge">Edges In (Converge)</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                  <input type="checkbox" checked={l.dotsBounce ?? false} onChange={(e) => p.onLayer({ dotsBounce: e.target.checked })} />
+                  Bounce / Ping-Pong
+                </label>
+                {slider("Speed", l.dotsSpeed ?? 1, 0, 10, 0.1, (v) => p.onLayer({ dotsSpeed: v }), "×")}
+                <label className="block">
+                  <div className="mb-1 label">Effect</div>
+                  <select className="field" value={l.dotsEffect ?? "solid"} onChange={(e) => p.onLayer({ dotsEffect: e.target.value as any })}>
+                    <option value="solid">Solid</option>
+                    <option value="blink">Blink</option>
+                    <option value="pulse">Pulse / Breathe</option>
+                    <option value="chase">Chase</option>
+                    <option value="twinkle">Twinkle</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">Color mode</div>
+                  <select className="field" value={l.dotsColorMode ?? "solid"} onChange={(e) => p.onLayer({ dotsColorMode: e.target.value as any })}>
+                    <option value="solid">Solid Color</option>
+                    <option value="dual">Dual Gradient</option>
+                    <option value="rainbow">Rainbow</option>
+                    <option value="cycle">Auto-Cycle</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">Blend / Place</div>
+                  <select className="field" value={l.blend ?? "add"} onChange={(e) => p.onLayer({ blend: e.target.value as any })}>
+                    <option value="add">Add Glow</option>
+                    <option value="normal">Normal</option>
+                    <option value="screen">Screen</option>
+                    <option value="overlay">Overlay</option>
+                    <option value="behind">Behind Content</option>
+                  </select>
+                </label>
+              </section>
+            )}
+
             {l.effect === "sparkle" && (
               <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
                 <div className="label">Twinkle / sparkle control</div>
@@ -307,20 +388,33 @@ export default function Inspector(p: Props) {
                   <input className="field" value={l.textContent ?? l.text ?? ""} onChange={(e) => p.onLayer({ textContent: e.target.value, text: e.target.value })} />
                 </label>
                 <div className="flex flex-wrap gap-1">
-                  {["★","♥","ॐ","卐","✦","❖","☀","☾"].map((s) => (
-                    <button key={s} className="chip" onClick={() => p.onLayer({ textContent: (l.textContent ?? l.text ?? "") + s, text: (l.textContent ?? l.text ?? "") + s })}>{s}</button>
+                  {["★","♥","ॐ","✦","❖","☀","☾","शुभ विवाह","स्वागतम","जय श्री राम"].map((s) => (
+                    <button key={s} className="chip" onClick={() => p.onLayer({ textContent: `${l.textContent ?? l.text ?? ""}${s}`, text: `${l.textContent ?? l.text ?? ""}${s}` })}>{s}</button>
                   ))}
                 </div>
                 <label className="block">
-                  <div className="mb-1 label">Font</div>
-                  <select className="field" value={l.textFont ?? "ui-monospace, monospace"} onChange={(e) => p.onLayer({ textFont: e.target.value })}>
-                    <option value="ui-monospace, monospace">Pixel Mono</option>
-                    <option value="monospace">Monospace</option>
-                    <option value="sans-serif">Sans</option>
-                    <option value="serif">Serif</option>
-                    <option value="cursive">Cursive</option>
+                  <div className="mb-1 label">Script filter</div>
+                  <select className="field" value={fontScript} onChange={(e) => setFontScript(e.target.value)}>
+                    <option value="all">All</option>
+                    <option value="hindi">Hindi / Devanagari</option>
+                    <option value="pixel">LED / Pixel</option>
+                    <option value="display">Bold Display</option>
+                    <option value="stylish">Stylish / Wedding</option>
                   </select>
                 </label>
+                <label className="block">
+                  <div className="mb-1 label">Font</div>
+                  <select className="field" value={l.textFont ?? "ui-monospace, monospace"} onChange={(e) => p.onLayer({ textFont: e.target.value })}>
+                    {FONT_FAMILIES.filter((f) => fontScript === "all" || f.script === fontScript).map((f) => (
+                      <option key={f.name} value={f.css}>{f.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-[13px] leading-tight text-zinc-100"
+                  style={{ fontFamily: l.textFont ?? "ui-monospace, monospace", fontWeight: 700 }}>
+                  शुभ विवाह · Hindi 123
+                </div>
+                {slider("Bold / stroke", l.textStroke ?? 0, 0, 3, 0.5, (v) => p.onLayer({ textStroke: v }))}
                 <label className="flex items-center gap-2 text-[11px] text-zinc-400">
                   <input type="checkbox" checked={l.textAutoFit !== false} onChange={(e) => p.onLayer({ textAutoFit: e.target.checked })} />
                   Auto-fit height (scales with matrix)
@@ -360,7 +454,7 @@ export default function Inspector(p: Props) {
               </section>
             )}
 
-            {l.effect !== "text" && (
+            {l.effect !== "text" && l.effect !== "dots-lines" && (
             <section className="space-y-3">
               <div className="label">Color engine</div>
               <div className="flex flex-wrap items-center gap-1.5">

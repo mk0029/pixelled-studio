@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { FONT_FAMILIES } from "@/engine/fontFamilies";
 import type { Project } from "@/types/project";
 
 interface Props {
@@ -9,8 +11,8 @@ interface Props {
 }
 
 export default function TextPanel({ project, onCommit, onAddText }: Props) {
-  const textLayers = project.layers.filter((l) => l.kind === "text");
-  const selected = textLayers[0] ?? null;
+  const [fontScript, setFontScript] = useState("all");
+  const textLayers = project.layers.filter((l) => l.effect === "text" || l.kind === "text");
 
   const patch = (id: string, patch: Partial<Project["layers"][number]>) => {
     onCommit((p) => ({ ...p, layers: p.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) }), "text:patch");
@@ -23,7 +25,7 @@ export default function TextPanel({ project, onCommit, onAddText }: Props) {
       {textLayers.length === 0 && <div className="text-zinc-500">No text layers.</div>}
       {textLayers.map((layer) => (
         <div key={layer.id} className="space-y-2 rounded border border-zinc-800 bg-zinc-900/60 p-2">
-          <input className="field" value={layer.textContent || layer.text || ""} onChange={(e) => patch(layer.id, { textContent: e.target.value, text: e.target.value })} placeholder="Text" />
+          <input className="field" value={layer.textContent || layer.text || ""} onChange={(e) => patch(layer.id, { textContent: e.target.value, text: e.target.value })} placeholder="शुभ विवाह / Welcome" />
           <div className="grid grid-cols-2 gap-2">
             <select className="field" value={layer.textDirection || "left"} onChange={(e) => patch(layer.id, { textDirection: e.target.value as "left" | "right" | "up" | "down" | "static" })}>
               <option value="left">Scroll Left</option>
@@ -33,6 +35,27 @@ export default function TextPanel({ project, onCommit, onAddText }: Props) {
               <option value="static">Static</option>
             </select>
             <input className="field" type="number" value={layer.textSize ?? 16} onChange={(e) => patch(layer.id, { textSize: +e.target.value })} placeholder="Size" />
+          </div>
+          <select className="field" value={fontScript} onChange={(e) => setFontScript(e.target.value)}>
+            <option value="all">All scripts</option>
+            <option value="hindi">Hindi / Devanagari</option>
+            <option value="pixel">LED / Pixel</option>
+            <option value="display">Bold Display</option>
+            <option value="stylish">Stylish / Wedding</option>
+          </select>
+          <select className="field" value={layer.textFont ?? "ui-monospace, monospace"} onChange={(e) => patch(layer.id, { textFont: e.target.value })}>
+            {FONT_FAMILIES.filter((f) => fontScript === "all" || f.script === fontScript).map((f) => (
+              <option key={f.name} value={f.css}>{f.name}</option>
+            ))}
+          </select>
+          <div className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[12px]"
+            style={{ fontFamily: layer.textFont ?? "ui-monospace, monospace", fontWeight: 700 }}>
+            शुभ विवाह · Hindi 123
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="label">Bold</span>
+            <input type="range" min="0" max="3" step="0.5" className="flex-1" value={layer.textStroke ?? 0}
+              onChange={(e) => patch(layer.id, { textStroke: +e.target.value })} />
           </div>
           <div className="flex items-center gap-2">
             <span className="label">Speed</span>

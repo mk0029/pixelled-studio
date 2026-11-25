@@ -88,6 +88,8 @@ function wiringCsv(map: WiringMap): string {
 /** Renders every frame into a ZIP of PNGs plus project, manifest and wiring CSV. */
 export async function exportFrameZip(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
   const { cols, rows } = project.hardware;
@@ -142,6 +144,8 @@ export async function exportFrameZip(project: Project, map: WiringMap, opts: Exp
 /** Motion-JPEG AVI: small, standard, plays in any media player. */
 export async function exportAvi(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const { cols, rows } = project.hardware;
   const total = frameCount(project);
   const scale = Math.max(1, Math.min(32, Math.round(opts.scale)));
@@ -248,6 +252,8 @@ export async function exportAvi(project: Project, map: WiringMap, opts: ExportOp
 /** Raw little-endian frame dump for custom drivers and WLED-style pipelines. */
 export async function exportBin(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const { cols, rows, colorOrder, chipsetId } = project.hardware;
   const channels = chipsetId === "SK6812" ? 4 : 3;
   const total = frameCount(project);
@@ -279,6 +285,8 @@ export async function exportBin(project: Project, map: WiringMap, opts: ExportOp
 /** FSEQ v2 uncompressed sequence: one channel byte per LED channel, in physical wiring order. */
 export async function exportFseq(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const { cols, colorOrder, chipsetId } = project.hardware;
   const channels = chipsetId === "SK6812" ? 4 : 3;
   const total = frameCount(project);
@@ -298,6 +306,8 @@ export async function exportFseq(project: Project, map: WiringMap, opts: ExportO
 /** Animated GIF at one output pixel per LED (times the chosen scale). */
 export async function exportGif(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const { GIFEncoder, quantize, applyPalette } = await import("gifenc");
   const { cols, rows } = project.hardware;
   const total = frameCount(project);
@@ -390,6 +400,8 @@ async function deflateZlib(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
  */
 export async function exportSwf(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const { cols, rows } = project.hardware;
   const total = Math.min(65535, frameCount(project));
   const scale = Math.max(1, Math.min(10, Math.round(opts.scale || 8)));

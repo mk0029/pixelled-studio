@@ -25,6 +25,8 @@ function download(blob: Blob, name: string): void {
  */
 export async function exportAviUncompressed(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
+  const { preloadProjectFonts } = await import("./fontFamilies");
+  await preloadProjectFonts(project);
   const { cols, rows } = project.hardware;
   const total = frameCount(project);
   const scale = Math.max(1, Math.min(32, Math.round(opts.scale)));

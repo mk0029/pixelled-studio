@@ -1,7 +1,7 @@
 import { hexToRgb, hslToRgb, polarCoords, rotateUV, sampleShader, type ShaderContext } from "./mathShaders";
 import { renderTextLayer } from "./textRenderer";
-import { applyAccentDots } from "./effects/accentDots";
 import { renderSpriteLayer } from "./effects/characterSprites";
+import { renderDotsLinesLayer } from "./effects/dotsLines";
 import { sampleMedia } from "./mediaRenderer";
 import { sampleMathEffect, getMathEffect } from "./mathCatalog";
 import { audioStore } from "./audio";
@@ -125,6 +125,50 @@ function layerColor(layer: Layer, u: number, v: number, intensity: number, hueSh
   return hslToRgb(h + hueShift, clamp01(s * layer.saturation / 100), l);
 }
 
+function dotsTiming(layer: Layer, time: number, anySolo: boolean) {
+  if (!layer.enabled || layer.mute || (anySolo && !layer.solo)) return null;
+  if (time < layer.startTime) return null;
+  if (layer.loop === false && time > layer.startTime + layer.duration) return null;
+  if (layer.strobeHz > 0 && fract(time * layer.strobeHz) >= 0.5) return null;
+  const rawElapsed = time - layer.startTime;
+  const elapsed = layer.loop !== false ? rawElapsed % Math.max(0.1, layer.duration) : rawElapsed;
+  const fadeIn = layer.fadeIn > 0 ? clamp01(elapsed / layer.fadeIn) : 1;
+  const fadeOut = (!layer.loop && layer.fadeOut > 0)
+    ? clamp01((layer.duration - elapsed) / layer.fadeOut) : 1;
+  const envelope = fadeIn * fadeOut;
+  if (envelope <= 0) return null;
+  const speed = Math.max(0.2, layer.speed + (keyframeValue(layer, time, "speed") ?? 0));
+  const audioGain = layer.audioReactive ? 0.25 + audioStore.level * 1.5 : 1;
+  const gain = (layer.brightness / 100) * envelope * (keyframeValue(layer, time, "brightness") ?? 1)
+    * audioGain * ((layer.opacity ?? 100) / 100);
+  return { localT: elapsed * speed, gain };
+}
+
+function drawDotsLayer(out: Uint8ClampedArray, layer: Layer, cols: number, rows: number,
+  localT: number, gain: number): void {
+  const buf = renderDotsLinesLayer(layer, cols, rows, localT);
+  for (let i = 0; i < cols * rows; i++) {
+    const p = i * 3, q = i * 4;
+    const a = (buf[q + 3] / 255) * gain;
+    if (a <= 0) continue;
+    const srcR = buf[q] * a, srcG = buf[q + 1] * a, srcB = buf[q + 2] * a;
+    if (layer.blend === "add") {
+      out[p] = clamp255(out[p] + srcR);
+      out[p + 1] = clamp255(out[p + 1] + srcG);
+      out[p + 2] = clamp255(out[p + 2] + srcB);
+    } else if (layer.blend === "behind" || layer.blend === "normal") {
+      const inv = 1 - a;
+      out[p] = clamp255(out[p] * inv + srcR);
+      out[p + 1] = clamp255(out[p + 1] * inv + srcG);
+      out[p + 2] = clamp255(out[p + 2] * inv + srcB);
+    } else {
+      out[p] = clamp255(blendChannel(out[p], srcR, layer.blend));
+      out[p + 1] = clamp255(blendChannel(out[p + 1], srcG, layer.blend));
+      out[p + 2] = clamp255(blendChannel(out[p + 2], srcB, layer.blend));
+    }
+  }
+}
+
 /**
  * Composites every active layer at `time` into a frame buffer in grid order
  * (index = y * cols + x). Exporters reorder it through the wiring map.
@@ -135,8 +179,16 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
   const anySolo = project.layers.some((l) => l.solo && l.enabled && !l.mute);
   const wiredIndex = map?.pixels;
 
+  // "Behind Content" dots render first, independent of their position in the stack.
+  for (const layer of project.layers) {
+    if (layer.effect !== "dots-lines" || layer.blend !== "behind") continue;
+    const timing = dotsTiming(layer, time, anySolo);
+    if (timing) drawDotsLayer(out, layer, cols, rows, timing.localT, timing.gain);
+  }
+
   for (const layer of project.layers) {
     if (!layer.enabled || layer.mute || (anySolo && !layer.solo)) continue;
+    if (layer.effect === "dots-lines" && layer.blend === "behind") continue;
     const loop = layer.loop !== false;
     if (time < layer.startTime) continue;
     if (!loop && time > layer.startTime + layer.duration) continue;
@@ -250,6 +302,11 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
       continue;
     }
 
+    if (layer.effect === "dots-lines") {
+      drawDotsLayer(out, layer, cols, rows, localT, gain);
+      continue;
+    }
+
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         let sx = x, sy = y;
@@ -352,8 +409,6 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
     }
   }
 
-  const dotLayer = project.layers.find((l) => l.dotParams?.enabled);
-  if (dotLayer?.dotParams) applyAccentDots(out, cols, rows, time, dotLayer.dotParams, dotLayer.direction ?? "normal");
   const master = project.masterBrightness / 100;
   const invGamma = 1 / Math.max(0.1, project.gamma);
   for (let i = 0; i < out.length; i++) {

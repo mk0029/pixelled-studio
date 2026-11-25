@@ -1,6 +1,6 @@
 import { DEFAULT_HARDWARE, type HardwareConfig } from "./hardware";
 
-export type BlendMode = "normal" | "add" | "multiply" | "screen" | "overlay" | "difference" | "max";
+export type BlendMode = "normal" | "add" | "multiply" | "screen" | "overlay" | "difference" | "max" | "behind";
 export type Symmetry = "none" | "horizontal" | "vertical" | "quad";
 export type LayerKind = "effect" | "math" | "text" | "media";
 
@@ -32,6 +32,7 @@ export const EFFECTS: EffectMeta[] = [
   { id: "rainbow", name: "Rainbow Spectrum",  glyph: "◒", group: "Patterns",        kind: "effect", detail: "Full hue cycle across the grid" },
   { id: "sparkle", name: "Sparkle / Twinkle", glyph: "✦", group: "Patterns",        kind: "effect", detail: "Hash-driven random pixel flashes" },
   { id: "media",   name: "Image / Video",     glyph: "▣", group: "Text & Media",   kind: "media",   detail: "Imported image or video frames" },
+  { id: "dots-lines", name: "Dots / Lines", glyph: "•", group: "Patterns", kind: "effect", detail: "Stackable dots, lines and dashed lines layer" },
   // LEDEdit .swf Flash effects — click to import the matching .swf file (captured via Ruffle)
   { id: "swf-linear-1",   name: "Linear effect 1",   glyph: "⚡", group: "LEDEdit FX", kind: "media", detail: "LEDEdit SWF linear animation" },
   { id: "swf-linear-2",   name: "Linear effect 2",   glyph: "⚡", group: "LEDEdit FX", kind: "media", detail: "LEDEdit SWF linear animation" },
@@ -171,7 +172,18 @@ export interface Layer {
   mediaRotateSpeed?: number;
   blend: BlendMode;
   direction?: string;
-  dotParams?: import("@/engine/effects/accentDots").DotParams;
+  // Dots / Lines layer params
+  dotsMode?: "dots" | "lines" | "dashed";
+  dotsLayout?: "grid" | "checkerboard" | "hstrips" | "vstrips" | "diag" | "border" | "scatter";
+  dotsCount?: number;
+  dotsThickness?: number;
+  dotsLength?: number;
+  dotsSpacing?: number;
+  dotsDirection?: "up" | "down" | "left" | "right" | "diag-ul" | "diag-ur" | "diag-dl" | "diag-dr" | "expand" | "converge" | "bounce";
+  dotsSpeed?: number;
+  dotsEffect?: "solid" | "blink" | "pulse" | "chase" | "twinkle";
+  dotsColorMode?: "solid" | "dual" | "rainbow" | "cycle";
+  dotsBounce?: boolean;
   spriteType?: string;
   spriteCount?: number;
   spriteScale?: number;
@@ -197,6 +209,8 @@ export interface Layer {
   textColors?: string[];
   textOutline?: boolean;
   textShadow?: boolean;
+  /** Extra stroke width to keep Devanagari matras legible on small matrices. */
+  textStroke?: number;
   // Media layer fields
   mediaType?: "image" | "video" | "gif" | "webm" | "swf" | "sfx";
   // Characters / real-world video preprocessing
@@ -303,7 +317,17 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     textSpeed: 1,
     blend: effect === "sweep" ? "add" : "normal",
     direction: "normal",
-    dotParams: { enabled: false, pattern: "diamond_mesh", action: "static", direction: "sync", speed: 1, blinkRate: 2, spacing: 2, colorMode: "white", customColor: "#ffffff", placement: "on_top" },
+    dotsMode: "dots",
+    dotsLayout: "grid",
+    dotsCount: 8,
+    dotsThickness: 2,
+    dotsLength: 8,
+    dotsSpacing: 4,
+    dotsDirection: "right",
+    dotsSpeed: 1,
+    dotsEffect: "solid",
+    dotsColorMode: "solid",
+    dotsBounce: false,
     spriteType: "heart",
     spriteCount: 1,
     spriteScale: 1,
@@ -369,6 +393,7 @@ export function normalizeProject(project: Project): Project {
       textColors: l.textColors ?? [l.color || "#ffffff"],
       textOutline: l.textOutline ?? false,
       textShadow: l.textShadow ?? false,
+      textStroke: Math.max(0, Math.min(3, l.textStroke ?? 0)),
       mediaType: l.mediaType,
       mediaFrames: l.mediaFrames ?? 0,
       mediaFps: l.mediaFps ?? 12,
@@ -398,7 +423,19 @@ export function normalizeProject(project: Project): Project {
       mediaSaturation: l.mediaSaturation ?? 100,
       mediaGamma: l.mediaGamma ?? 1,
       mediaThreshold: l.mediaThreshold ?? 0,
-      mediaSilhouette: l.mediaSilhouette ?? false,      mediaCropX: l.mediaCropX ?? 0,
+      mediaSilhouette: l.mediaSilhouette ?? false,
+      dotsMode: l.dotsMode ?? "dots",
+      dotsLayout: l.dotsLayout ?? "grid",
+      dotsCount: l.dotsCount ?? 8,
+      dotsThickness: l.dotsThickness ?? 2,
+      dotsLength: l.dotsLength ?? 8,
+      dotsSpacing: l.dotsSpacing ?? 4,
+      dotsDirection: l.dotsDirection ?? "right",
+      dotsSpeed: l.dotsSpeed ?? 1,
+      dotsEffect: l.dotsEffect ?? "solid",
+      dotsColorMode: l.dotsColorMode ?? "solid",
+      dotsBounce: l.dotsBounce ?? false,
+      mediaCropX: l.mediaCropX ?? 0,
       mediaCropY: l.mediaCropY ?? 0,
       mediaCropW: l.mediaCropW ?? 0,
       mediaCropH: l.mediaCropH ?? 0,

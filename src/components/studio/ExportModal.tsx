@@ -11,6 +11,7 @@ interface Props {
   project: Project;
   map: WiringMap;
   initialFormat: ExportFormat;
+  fontsReady?: boolean;
   onClose: () => void;
 }
 
@@ -57,7 +58,7 @@ export default function ExportModal(p: Props) {
   }, [p.open, p.initialFormat]);
 
   useEffect(() => {
-    if (!p.open) return;
+    if (!p.open || p.fontsReady === false) return;
     const { cols, rows } = p.project.hardware;
     const frame = renderFrame(p.project, 0, p.map, 0.5);
     const canvas = previewRef.current;
@@ -75,7 +76,7 @@ export default function ExportModal(p: Props) {
     ctx.putImageData(img, 0, 0);
     const hex = Array.from(frame.slice(0, 48)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
     setPreviewHex(hex);
-  }, [p.open, p.project, p.map, format]);
+  }, [p.open, p.project, p.map, format, p.fontsReady]);
 
   if (!p.open) return null;
 

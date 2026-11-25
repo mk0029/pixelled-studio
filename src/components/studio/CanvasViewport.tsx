@@ -25,6 +25,7 @@ interface Props {
   split: boolean;
   onSplit: () => void;
   paused?: boolean;
+  fontsReady?: boolean;
   onRegisterZoomControls?: (controls: { zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void }) => void;
 }
 
@@ -234,6 +235,10 @@ export default function CanvasViewport(p: Props) {
         }
       }
       if (now - lastUi > 90) { onTime(playRef.current); lastUi = now; }
+      if (propsRef.current.fontsReady === false && project.layers.some((l) => l.effect === "text" || l.kind === "text")) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = sizeRef.current.w || canvas.clientWidth, h = sizeRef.current.h || canvas.clientHeight;

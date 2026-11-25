@@ -1,5 +1,3 @@
-import type { DotParams } from "./accentDots";
-
 export interface EffectParams {
   speed: number;
   density: number;
@@ -8,5 +6,4 @@ export interface EffectParams {
   hueShift: number;
   brightness: number;
   symmetry: number;
-  dots?: DotParams;
 }

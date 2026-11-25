@@ -75,6 +75,7 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   const [modal, setModal] = useState<{ open: boolean; isNew: boolean }>({ open: false, isNew: false });
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [exportModal, setExportModal] = useState<{ open: boolean; format: ExportFormat }>({ open: false, format: "zip" });
+  const [fontsReady, setFontsReady] = useState(true);
 
   const zoomControlsRef = useRef<{ zoomIn: () => void; zoomOut: () => void; fit: () => void; hundred: () => void } | null>(null);
   const [layout, setLayout] = useState(readLayout);
@@ -88,6 +89,22 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
 
   const map = useMemo(() => buildWiringMap(project.hardware), [project.hardware]);
   const selected = project.layers.find((l) => l.id === selectedId) ?? null;
+  const textFontKey = project.layers
+    .filter((l) => l.effect === "text" || l.kind === "text")
+    .map((l) => l.textFont ?? "")
+    .join("|");
+
+  useEffect(() => {
+    if (!textFontKey) { setFontsReady(true); return; }
+    let cancelled = false;
+    setFontsReady(false);
+    void (async () => {
+      const { preloadProjectFonts } = await import("@/engine/fontFamilies");
+      await preloadProjectFonts(project);
+      if (!cancelled) setFontsReady(true);
+    })();
+    return () => { cancelled = true; };
+  }, [textFontKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doSeek = useCallback((t: number) => {
     const clamped = Math.max(0, Math.min(project.duration, t));
@@ -547,6 +564,7 @@ const addKeyframe = useCallback(() => {
             onTogglePitch={() => commit((p) => ({ ...p, hardware: { ...p.hardware, showPitch: !p.hardware.showPitch } }))}
             split={split} onSplit={() => setSplit((v) => !v)}
             paused={launcherOpen}
+            fontsReady={fontsReady}
           />
           <TransportBar
             playing={playing} canPlay={project.layers.length > 0} loop={loop} time={uiTime}
@@ -613,6 +631,7 @@ const addKeyframe = useCallback(() => {
       <AnimatePresence>
         {exportModal.open && (
           <MotionExport key="export" open={exportModal.open} project={project} map={map} initialFormat={exportModal.format}
+            fontsReady={fontsReady}
             onClose={() => setExportModal((s) => ({ ...s, open: false }))} />
         )}
       </AnimatePresence>
