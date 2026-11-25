@@ -1,5 +1,5 @@
 // Minimal Sanity Content Lake client (no extra dependency).
-const PROJECT_ID = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID || "";
+const PROJECT_ID = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID || "3mq2fyfh";
 const DATASET = process.env.NEXT_PUBLIC_SANITY_DATASET || "production";
 const API_VERSION = "2024-01-01";
 
