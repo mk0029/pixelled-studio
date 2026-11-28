@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FONT_FAMILIES } from "@/engine/fontFamilies";
+import { normalizeText3D } from "@/types/layers";
 import type { Project } from "@/types/project";
+import EmojiPicker from "./EmojiPicker";
+import Text3DControls from "./Text3DControls";
 
 interface Props {
   project: Project;
@@ -19,6 +22,7 @@ const SCRIPTS = [
 
 export default function TextPanel({ project, onCommit, onAddText }: Props) {
   const [fontScript, setFontScript] = useState<(typeof SCRIPTS)[number]["id"]>("all");
+  const textInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const textLayers = project.layers.filter((l) => l.effect === "text" || l.kind === "text");
 
   const patch = (id: string, patch: Partial<Project["layers"][number]>) => {
@@ -32,9 +36,21 @@ export default function TextPanel({ project, onCommit, onAddText }: Props) {
       {textLayers.length === 0 && <div className="text-zinc-500">No text layers.</div>}
       {textLayers.map((layer) => {
         const font = layer.textFont ?? FONT_FAMILIES[0].css;
+        const text3d = normalizeText3D(layer.text3d);
+        const textValue = layer.textContent || layer.text || "";
+        const setText = (value: string) => patch(layer.id, { textContent: value, text: value });
         return (
-          <div key={layer.id} className="space-y-2 rounded border border-zinc-800 bg-zinc-900/60 p-2">
-            <input className="field" value={layer.textContent || layer.text || ""} onChange={(e) => patch(layer.id, { textContent: e.target.value, text: e.target.value })} placeholder="शुभ विवाह / Welcome" />
+          <div key={layer.id} className="space-y-2 rounded border border-white/10 bg-[#111827] p-2.5">
+            <div className="flex items-start gap-2">
+              <input
+                ref={(el) => { textInputs.current[layer.id] = el; }}
+                className="field min-h-[44px] md:min-h-0"
+                value={textValue}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="शुभ विवाह / Welcome"
+              />
+              <EmojiPicker value={textValue} onChange={setText} inputRef={{ current: textInputs.current[layer.id] }} />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <select className="field" value={layer.textDirection || "left"} onChange={(e) => patch(layer.id, { textDirection: e.target.value as "left" | "right" | "up" | "down" | "static" })}>
                 <option value="left">Scroll Left</option>
@@ -80,6 +96,29 @@ export default function TextPanel({ project, onCommit, onAddText }: Props) {
               <input type="color" value={(layer.textColors && layer.textColors[0]) || layer.color || "#ffffff"} onChange={(e) => patch(layer.id, { textColors: [e.target.value], color: e.target.value })} />
               <span className="text-zinc-500">Text colour</span>
             </div>
+            {(() => {
+              const max = Math.max(48, project.hardware.rows);
+              const val = layer.textYOffset ?? layer.yOffset ?? 0;
+              const setY = (v: number) => patch(layer.id, { textYOffset: v, yOffset: v });
+              return (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="label">Vertical Position (Y)</span>
+                    <span className="font-mono text-[10px] tabular-nums text-zinc-400">{val >= 0 ? `+${val}` : val} px</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" className="btn h-8 px-2" title="Up 1px" onClick={() => setY(val - 1)}>↑</button>
+                    <input type="range" min={-max} max={max} step={1} className="min-w-0 flex-1" value={val} onChange={(e) => setY(+e.target.value)} />
+                    <button type="button" className="btn h-8 px-2" title="Down 1px" onClick={() => setY(val + 1)}>↓</button>
+                    <button type="button" className="btn h-8 px-2" title="Center" onClick={() => setY(0)}>0</button>
+                  </div>
+                </div>
+              );
+            })()}
+            <Text3DControls
+              config={text3d}
+              onChange={(next) => patch(layer.id, { text3d: normalizeText3D({ ...text3d, ...next }) })}
+            />
           </div>
         );
       })}

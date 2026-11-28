@@ -2,10 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { listSavedProjects, readAutosave, type ProjectMeta } from "@/lib/projectStore";
-import {
-  COLOR_ORDERS, DEFAULT_HARDWARE, ROUTINGS, START_CORNERS,
-  type HardwareConfig, type RoutingPattern,
-} from "@/types/hardware";
+import { COLOR_ORDERS, DEFAULT_HARDWARE, LAYOUT_PRESETS, type HardwareConfig } from "@/types/hardware";
 import { Icon } from "./icons";
 
 export interface NewProjectConfig {
@@ -27,20 +24,7 @@ interface Props {
   onLoadJson: () => void;
 }
 
-const ROUTING_LABEL: Record<RoutingPattern, string> = {
-  "vertical-snake": "Vertical S-Snake",
-  "vertical-progressive": "Vertical Progressive",
-  "horizontal-snake": "Horizontal S-Snake",
-  "horizontal-progressive": "Horizontal Progressive",
-};
-const ROUTING_GLYPH: Record<RoutingPattern, string> = {
-  "vertical-snake": "↓↑", "vertical-progressive": "↓↓",
-  "horizontal-snake": "→←", "horizontal-progressive": "→→",
-};
-const CORNER_LABEL: Record<string, string> = {
-  "top-left": "Top-Left", "top-right": "Top-Right",
-  "bottom-left": "Bottom-Left", "bottom-right": "Bottom-Right",
-};
+const clamp = (v: number) => Math.max(4, Math.min(512, Math.round(v) || 4));
 
 export default function ProjectLauncherModal(p: Props) {
   const [view, setView] = useState<"launcher" | "new">("launcher");
@@ -66,7 +50,6 @@ export default function ProjectLauncherModal(p: Props) {
   const metaLine = (m: ProjectMeta) => (
     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-zinc-400">
       <span>{m.cols}×{m.rows} • {m.layerCount} Layer{m.layerCount === 1 ? "" : "s"}</span>
-      <span>{ROUTING_LABEL[m.routing as RoutingPattern] ?? m.routing}</span>
     </div>
   );
 
@@ -81,19 +64,15 @@ export default function ProjectLauncherModal(p: Props) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3">
-      <div className={`flex w-full flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 shadow-[0_18px_60px_#000] ${
+      <div className={`flex w-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0B0F17] shadow-[0_18px_60px_#000] ${
         view === "new" ? "max-h-[82dvh] max-w-xl" : "max-h-[80dvh] max-w-2xl"
       }`}>
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-800 px-3">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-teal-400 to-violet-500 text-[15px] font-black text-zinc-950">T</div>
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-bold text-zinc-100">PixleLED Studio <span className="text-zinc-500">— by Jambh Electricals</span></div>
-            <div className="text-[10px] text-zinc-500">{view === "launcher" ? "Project Launcher" : "Start New Project"}</div>
-          </div>
-          {p.allowClose && <button className="btn btn-icon ml-auto" onClick={p.onClose} title="Close launcher"><Icon name="x" /></button>}
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-white/10 bg-[#111827] px-3">
+          <span className="text-[13px] font-bold text-zinc-100">{view === "launcher" ? "Saved Shows" : "New Show"}</span>
+          {p.allowClose && <button className="btn btn-icon ml-auto" onClick={p.onClose} title="Close panel" aria-label="Close panel"><Icon name="x" /></button>}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
           {view === "launcher" ? (
             <div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -102,12 +81,12 @@ export default function ProjectLauncherModal(p: Props) {
                   <div className="grid h-11 w-11 place-items-center rounded-xl bg-teal-400/15 text-teal-300"><Icon name="plus" size={22} /></div>
                   <div className="mt-3 text-[15px] font-bold text-zinc-100">Start New Project</div>
                   <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    Configure a fresh Toran or Matrix setup with your grid dimensions and wiring topology.
+                    Set a project name, color order, channels and matrix dimensions.
                   </p>
                   <div className="mt-3 text-[11px] font-semibold text-teal-300">Configure workspace →</div>
                 </button>
 
-                <div className="rounded-xl border border-zinc-700 bg-zinc-900/50 p-4">
+                <div className="rounded-xl border border-white/10 bg-[#111827] p-4">
                   <div className="mb-3 flex items-center gap-2">
                     <Icon name="layers" size={15} />
                     <span className="text-[13px] font-bold text-zinc-100">Continue Existing Project</span>
@@ -128,7 +107,7 @@ export default function ProjectLauncherModal(p: Props) {
                         <div className="mt-3 space-y-1.5">
                           <div className="label">Other saved projects</div>
                           {others.map((m) => (
-                            <div key={m.id} className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-2">
+                            <div key={m.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0B0F17] px-2.5 py-2">
                               <button className="min-w-0 flex-1 text-left" onClick={() => p.onOpen(m.id)}>
                                 <div className="truncate text-[11px] font-semibold text-zinc-200">{m.name}</div>
                                 {metaLine(m)}
@@ -140,7 +119,7 @@ export default function ProjectLauncherModal(p: Props) {
                       )}
                     </>
                   ) : (
-                    <div className="rounded-lg border border-dashed border-zinc-700 px-3 py-6 text-center">
+                    <div className="rounded-lg border border-dashed border-white/15 px-3 py-6 text-center">
                       <Icon name="folder" size={20} />
                       <div className="mt-2 text-[11px] text-zinc-400">No saved projects found on this device yet</div>
                       <button className="btn mt-3" onClick={p.onLoadJson}><Icon name="folder" size={13} /> Load .json Project File</button>
@@ -153,70 +132,76 @@ export default function ProjectLauncherModal(p: Props) {
               )}
             </div>
           ) : (
-            <div>
-              <button className="btn mb-4" onClick={() => setView("launcher")}>← Back</button>
+            <div className="space-y-4">
+              <button className="btn" onClick={() => setView("launcher")}>← Back</button>
 
-              <section className="mb-4">
-                <div className="label mb-1.5">Project Name</div>
-                <input className="field" placeholder="Diwali Main Gate Toran 30x20" value={draft.name}
+              <section>
+                <div className="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Project Name</div>
+                <input className="field" placeholder="Diwali Main Gate Toran" value={draft.name}
                   onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
               </section>
 
-              <section className="mb-4 grid gap-3 sm:grid-cols-2">
-                <label><div className="label mb-1.5">Color Order</div>
+              <section className="grid gap-3 sm:grid-cols-2 rounded-xl border border-white/10 bg-[#111827] p-3.5">
+                <label>
+                  <div className="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Color Order</div>
                   <select className="field" value={draft.hardware.colorOrder} onChange={(e) => setHw("colorOrder", e.target.value as HardwareConfig["colorOrder"])}>
                     {COLOR_ORDERS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </label>
-                <label><div className="label mb-1.5">Active Ports</div>
-                  <input type="number" min="1" max="16" className="field" value={draft.hardware.activePorts}
-                    onChange={(e) => setHw("activePorts", Math.max(1, Math.min(16, +e.target.value || 1)))} />
-                </label>
-              </section>
-
-              <section className="mb-4">
-                <div className="label mb-1.5">Matrix size</div>
-                <div className="grid max-w-sm grid-cols-2 gap-3">
-                  <label><div className="mb-1 text-[11px] text-zinc-400">Columns / Drops</div>
-                    <input type="number" min="1" max="256" className="field" value={draft.hardware.cols}
-                      onChange={(e) => setHw("cols", Math.max(1, Math.min(256, +e.target.value || 1)))} /></label>
-                  <label><div className="mb-1 text-[11px] text-zinc-400">LEDs per Drop</div>
-                    <input type="number" min="1" max="256" className="field" value={draft.hardware.rows}
-                      onChange={(e) => setHw("rows", Math.max(1, Math.min(256, +e.target.value || 1)))} /></label>
+                <div>
+                  <div className="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Channels</div>
+                  <div className="flex gap-1.5">
+                    {([3, 4] as const).map((count) => (
+                      <button key={count} type="button" className={`chip tabular-nums ${draft.hardware.channels === count ? "chip-active" : ""}`}
+                        onClick={() => setHw("channels", count)}>{count} ch</button>
+                    ))}
+                  </div>
                 </div>
               </section>
 
-              <section>
-                <div className="label mb-1.5">Connections</div>
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                  {START_CORNERS.map((c) => (
-                    <button key={c} className={`chip ${draft.hardware.startCorner === c ? "chip-active" : ""}`}
-                      onClick={() => setHw("startCorner", c)}>{CORNER_LABEL[c]}</button>
-                  ))}
+              <section className="space-y-3 rounded-xl border border-white/10 bg-[#111827] p-3.5">
+                <div className="text-[11px] uppercase tracking-wider text-slate-400">Matrix size</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {LAYOUT_PRESETS.map((preset) => {
+                    const active = draft.hardware.cols === preset.cols && draft.hardware.rows === preset.rows;
+                    return (
+                      <button key={preset.name} type="button" className={`btn tabular-nums ${active ? "chip-active" : ""}`}
+                        onClick={() => { setHw("cols", preset.cols); setHw("rows", preset.rows); }}>
+                        {preset.cols}×{preset.rows}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="grid gap-1.5 sm:grid-cols-2">
-                  {ROUTINGS.map((r) => (
-                    <button key={r} className={`chip flex items-center gap-2 text-left ${draft.hardware.routing === r ? "chip-active" : ""}`}
-                      onClick={() => setHw("routing", r)}>
-                      <span className="font-mono text-[13px]">{ROUTING_GLYPH[r]}</span>{ROUTING_LABEL[r]}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 gap-3">
+                  <label>
+                    <div className="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Width</div>
+                    <input type="number" min={4} max={512} className="field tabular-nums" value={draft.hardware.cols}
+                      onChange={(e) => setHw("cols", clamp(Number(e.target.value)))} />
+                  </label>
+                  <label>
+                    <div className="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Height</div>
+                    <input type="number" min={4} max={512} className="field tabular-nums" value={draft.hardware.rows}
+                      onChange={(e) => setHw("rows", clamp(Number(e.target.value)))} />
+                  </label>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-[#0B0F17] px-2.5 py-2 font-mono text-[11px] text-zinc-400">
+                  Total: <span className="tabular-nums text-teal-300">{(draft.hardware.cols * draft.hardware.rows).toLocaleString()}</span> LEDs
                 </div>
               </section>
             </div>
           )}
         </div>
 
-        <div className="flex h-12 shrink-0 items-center justify-between border-t border-zinc-800 px-3">
+        <div className="flex h-12 shrink-0 items-center justify-between border-t border-white/10 bg-[#111827] px-3">
           <span className="text-[10px] text-zinc-600">PixleLED Studio · by Jambh Electricals</span>
           {view === "new" ? (
             <div className="flex gap-2">
               <button className="btn" onClick={() => setView("launcher")}>Cancel</button>
               <button className="btn btn-primary" onClick={() => p.onCreate({
                 ...draft,
-                name: draft.name.trim() || "Untitled Toran Project",
+                name: draft.name.trim() || "Untitled Project",
                 hardware: { ...DEFAULT_HARDWARE, ...draft.hardware },
-              })}><Icon name="plus" size={14} />Create & Open Workspace →</button>
+              })}><Icon name="plus" size={14} />Create Project →</button>
             </div>
           ) : <span className="text-[10px] text-zinc-600">Choose an option to continue</span>}
         </div>

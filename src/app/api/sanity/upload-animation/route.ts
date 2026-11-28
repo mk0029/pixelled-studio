@@ -5,7 +5,7 @@ import { sanityAdminQuery, sanityCreateDocument, sanityUploadFile, sanityWriteEn
 
 export const runtime = "nodejs";
 
-const SUPPORTED = new Set([".swf", ".avi", ".tol"]);
+const SUPPORTED = new Set([".swf", ".avi", ".tol", ".gif"]);
 const HASHES_QUERY = `*[_type == "animationAsset"]{ "hash": coalesce(fileHash, md5) }[defined(hash)].hash`;
 
 const text = (value: FormDataEntryValue | null, fallback = "") =>

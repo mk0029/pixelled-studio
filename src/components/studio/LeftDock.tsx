@@ -15,9 +15,11 @@ interface Props {
   onAddPreset: (preset: Preset) => void;
   onImportMedia: (file: File, onStatus: (message: string) => void) => Promise<void>;
   width: number | string;
+  /** Render inside a parent scroll container: no own scrollbar. */
+  embedded?: boolean;
 }
 
-export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: Props) {
+export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width, embedded }: Props) {
   const [tab, setTab] = useState<Tab>("presets");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
@@ -76,7 +78,7 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
   );
 
   return (
-    <aside style={{ width }} className="flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+    <aside style={{ width }} className={embedded ? "flex w-full min-w-0 flex-col" : "flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950"}>
       <div className="flex h-9 shrink-0 border-b border-zinc-800">
         {tabButton("presets", "sparkles", "Presets")}
         {tabButton("math", "sigma", "Math")}
@@ -98,7 +100,7 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-auto p-2">
+      <div className={embedded ? "p-2" : "min-h-0 flex-1 overflow-y-auto overflow-x-auto p-2"}>
         {tab === "media" ? (
           <>
             <div onClick={() => !busy && fileRef.current?.click()}
@@ -137,7 +139,7 @@ export default function LeftDock({ onAdd, onAddPreset, onImportMedia, width }: P
               ))}
             </div>
             <div className="mt-2 text-[9px] leading-relaxed text-zinc-600">
-              Animations are baked to a sprite sheet at the current project grid. SWF plays once in the browser while it is captured; LED files use the current port wiring.
+              Animations are baked to a sprite sheet at the current project grid. SWF plays once in the browser while it is captured; LED frames are baked in matrix order at that grid size.
             </div>
           </>
         ) : tab === "presets" ? (

@@ -6,17 +6,19 @@ import { Icon } from "@/components/studio/icons";
 import { useStudioSettings } from "@/context/StudioSettingsContext";
 
 const FEATURES = [
-  { icon: "sigma", title: "100+ Math & Logical Shaders", body: "Trig waves, polar spirals, bitwise XOR logic, cellular automata, particle drops, and a live custom math formula editor." },
-  { icon: "layers", title: "Multi-Layer Independent Text Engine", body: "Stack multiple scrolling tickers with independent directions, speeds and colors, on crisp pixel fonts." },
-  { icon: "image", title: "Universal Media & Effect Import", body: "PNG / JPG / GIF / WEBP / MP4 / WEBM inputs, legacy LEDEdit .sfx / .swf effects, auto-cropped to the matrix." },
-  { icon: "cpu", title: "Hardware-Accurate Wiring & Mapper", body: "Visualizes Vertical S-Snake / Progressive paths, port splits and RGB / GRB channel order live on the canvas." },
-  { icon: "grid", title: "NLE Timeline with Magnetic Snapping", body: "Frame-accurate trimming, splitting, per-layer controls and phase-alignment snap lines." },
+  { icon: "sigma", title: "400+ Math & Logical Shaders", body: "Trig waves, polar spirals, bitwise XOR logic, cellular automata, particle drops, and a live custom math formula editor." },
+  { icon: "layers", title: "Layered Text, 3D & Font Engine", body: "Stack scrolling tickers, Devanagari/Hindi text, 20+ fonts and 3D extruded titles with independent speeds, colors and blend modes." },
+  { icon: "sparkles", title: "Characters, Emoji & Sprite Layers", body: "Unicode emoji, GIF sprites and chroma-keyed character video with movement, flicker, scaling and transform controls." },
+  { icon: "grid", title: "Dots & Lines Particle Engine", body: "Stackable dots/lines layers with particle drops, hand-drawn stamps, gravity stacking, layouts and blink/pulse/chase effects." },
+  { icon: "image", title: "Universal Media & Effect Import", body: "PNG / JPG / GIF / WEBP / MP4 / WEBM inputs, LEDEdit .sfx / .swf effects, AVI/TOL clips and Sanity animation library assets, auto-cropped to the matrix." },
+  { icon: "cpu", title: "Deterministic Matrix Preview", body: "Every frame renders at the exact grid size in raster order — the preview is the exported frame, with no scaling or interpolation." },
+  { icon: "clock", title: "NLE Timeline with Magnetic Snapping", body: "Frame-accurate trimming, splitting, per-layer controls, blend modes and phase-alignment snap lines." },
   { icon: "wifi", title: "100% Offline-First PWA", body: "Installable on Windows, Android or macOS — works with zero internet connection at real event sites." },
 ];
 
 const GRIDS = ["8×8", "16×16", "16×32", "16×60", "32×64", "64×64", "custom"];
-const EXPORTS = ["LEDEdit AVI", "FSEQ", "BIN", "JSON"];
-const MEDIA = ["PNG", "JPG", "GIF", "WEBP", "MP4", "WEBM"];
+const EXPORTS = ["AVI (LEDEdit)", "AVI (MJPEG)", "FSEQ", "GIF", "SWF", "BIN", "ZIP"];
+const MEDIA = ["PNG", "JPG", "GIF", "WEBP", "MP4", "WEBM", "SWF", "SFX", "AVI", "TOL"];
 
 // framer-motion's whileInView never fires in this app, so reveal on a raw IntersectionObserver
 function useReveal<T extends HTMLElement>() {
@@ -61,7 +63,7 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
         <div className="relative max-w-3xl">
           <div className="label mb-3">PixleLED Studio · Engineered by Jambh Electricals</div>
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">Professional Pixel LED Toran & Matrix Programming — Directly in Your Browser.</h1>
-          <p className="mt-4 text-[13px] leading-relaxed text-zinc-400">Zero installation, 100% client-side speed, offline PWA support, 200+ shaders and stackable text, characters and dots/lines layers — exported as LEDEdit-ready AVI.</p>
+          <p className="mt-4 text-[13px] leading-relaxed text-zinc-400">Zero installation, 100% client-side speed, offline PWA support, 400+ math shaders, stackable text, characters, dots/lines and media layers — exported as LEDEdit-ready AVI and more.</p>
           <div className="mt-7 flex items-center justify-center gap-2">
             <button onClick={launch} className="btn btn-primary anim-fade-up anim-fade-up-1 anim-hover">Launch PixleLED Studio</button>
             <button onClick={() => window.open("https://www.instagram.com/jambh_elecricals/", "_blank", "noopener,noreferrer")} className="btn anim-fade-up anim-fade-up-2 anim-hover">Send Feedback</button>
@@ -80,10 +82,10 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
           <div className="label mb-6 text-center">Quick Start Guide</div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              ["1", "Set the LED Matrix Size", "Pick your grid dimensions and wiring path — preview matches the hardware."],
-              ["2", "Stack Math, Text, Characters & Dots", "Add shaders, presets, Hindi text, video clips or hand-drawn stamps."],
+              ["1", "Set the LED Matrix Size", "Pick your grid dimensions — the preview matches the exported pixels."],
+              ["2", "Stack Math, Text, Characters & Dots", "Add shaders, presets, Hindi text, character video, dots/lines stamps or media clips."],
               ["3", "Align & Merge on Timeline", "Drag, resize, split, magnetically snap, blend layers."],
-              ["4", "Export for LEDEdit", "Export an uncompressed AVI at the exact matrix size."],
+              ["4", "Export Anywhere", "Export uncompressed LEDEdit AVI, MJPEG AVI, FSEQ, GIF, SWF, BIN or ZIP."],
             ].map(([n, t, b]) => (
               <div key={n} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
                 <div className="font-mono text-[10px] text-teal-300">{n}</div>
@@ -106,7 +108,7 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
               <div className="label mb-2">Asset library</div>
-              <div className="text-[10px] text-zinc-500">Browse .swf, .avi and .tol animations from Sanity and load clips straight into the studio.</div>
+              <div className="text-[10px] text-zinc-500">Browse and upload .swf, .avi, .tol and .gif animations from Sanity, then load clips straight into the studio.</div>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
               <div className="label mb-2">Media & Effect Inputs</div>
@@ -118,7 +120,7 @@ export default function Home({ onLaunch }: { onLaunch: () => void }) {
             </div>
           </div>
           <p className="mt-4 text-[10px] leading-relaxed text-zinc-500">
-            Every frame is rendered at the exact grid size with nearest-neighbour sampling, then written as uncompressed BGR24 AVI for LEDEdit.
+            Every frame is rendered at the exact grid size with nearest-neighbour sampling, then exported as uncompressed BGR24 AVI for LEDEdit or other supported formats.
           </p>
         </div>
       </section>

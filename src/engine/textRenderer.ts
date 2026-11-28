@@ -1,4 +1,5 @@
 import { preloadFont, resolveFontStack } from "./fontFamilies";
+import { emojiFontSpec, renderStyledTextWithEmojis, splitGraphemes } from "@/lib/text3dRenderer";
 
 export interface TextRenderContext {
   layer: import("@/types/project").Layer;
@@ -24,12 +25,6 @@ function getCanvas(cols: number, rows: number) {
   return { ...entry, w, h };
 }
 
-function splitGraphemes(text: string): string[] {
-  const Segmenter = (Intl as any).Segmenter;
-  if (Segmenter) return Array.from(new Segmenter("en", { granularity: "grapheme" }).segment(text), (s: any) => s.segment);
-  return Array.from(text);
-}
-
 /** Return false while a web font is still loading so Canvas never paints Arial. */
 function fontReady(font: string): boolean {
   if (typeof document === "undefined" || !document.fonts) return true;
@@ -52,7 +47,7 @@ function buildColors(layer: import("@/types/project").Layer): string[] {
   return layer.textColors?.length ? layer.textColors : [layer.color || "#ffffff"];
 }
 
-export function renderTextLayer(layer: import("@/types/project").Layer, cols: number, rows: number, time: number): Uint8ClampedArray | null {
+export function renderTextLayer(layer: import("@/types/project").Layer, cols: number, rows: number, time: number, fps = 30): Uint8ClampedArray | null {
   if (typeof document === "undefined") return null;
   const font = resolveFontStack(layer.textFont || "ui-monospace, monospace");
   if (!fontReady(font)) return null;
@@ -68,9 +63,11 @@ export function renderTextLayer(layer: import("@/types/project").Layer, cols: nu
   const colors = buildColors(layer);
   const dir = layer.textDirection || "left";
   const spacing = Math.max(-4, Math.min(16, layer.textSpacing ?? 1));
+  const textXOffsetLed = layer.textXOffset ?? layer.xOffset ?? 0;
+  const textYOffsetLed = layer.textYOffset ?? layer.yOffset ?? 0;
   const speed = Math.max(0.2, layer.textSpeed ?? layer.speed ?? 1);
 
-  ctx.font = `700 ${size}px ${font}`;
+  ctx.font = emojiFontSpec(700, size, font);
   ctx.textBaseline = "middle";
   const chars = splitGraphemes(text);
   const charWidths = chars.map((ch) => ctx.measureText(ch).width + spacing * (size * 0.15));
@@ -107,8 +104,8 @@ export function renderTextLayer(layer: import("@/types/project").Layer, cols: nu
     ctx.shadowBlur = 0;
   }
 
-  let cx = w - offset + (layer.textX ?? 0) * (w / cols);
-  const baseY = h / 2 + (layer.textY ?? 0) * (h / rows);
+  let cx = w - offset + (layer.textX ?? 0) * (w / cols) + textXOffsetLed * S;
+  const baseY = h / 2 + (layer.textY ?? 0) * (h / rows) + textYOffsetLed * S;
   const boldStroke = Math.max(0, Math.min(4, layer.textStroke ?? 0)) * size * 0.02;
   const mode = layer.textColorMode || "solid";
 
@@ -130,23 +127,29 @@ export function renderTextLayer(layer: import("@/types/project").Layer, cols: nu
       const voff = dir === "up"
         ? ((time * speed * h * 0.35) % vspan + vspan) % vspan
         : (-((time * speed * h * 0.35) % vspan) + vspan) % vspan;
-      y = (voff + (layer.textY ?? 0) * (h / rows)) % vspan;
-      cx = w / 2;
+      y = (voff + (layer.textY ?? 0) * (h / rows) + textYOffsetLed * S) % vspan;
+      cx = w / 2 + textXOffsetLed * S;
     }
 
-    if (layer.textOutline) {
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = Math.max(1, size * 0.09);
-      ctx.strokeText(ch, cx, y);
-    }
-    if (boldStroke > 0) {
-      ctx.strokeStyle = fill;
-      ctx.lineWidth = boldStroke;
-      ctx.lineJoin = "round";
-      ctx.strokeText(ch, cx, y);
-    }
-    ctx.fillText(ch, cx, y);
-    cx += charWidths[i];
+    const strokeWidth = layer.textOutline ? Math.max(1, size * 0.09) : boldStroke;
+    const width = renderStyledTextWithEmojis({
+      ctx,
+      text: ch,
+      x: cx,
+      y,
+      fontSize: size,
+      fontFamily: font,
+      fontWeight: 700,
+      fillColor: fill,
+      strokeColor: layer.textOutline ? "#000000" : fill,
+      strokeWidth,
+      letterSpacing: spacing * (size * 0.15),
+      frameIndex: Math.round(time * Math.max(1, fps)),
+      fps,
+      config3D: layer.text3d,
+      charIndex: i,
+    });
+    cx += width || charWidths[i];
   });
   ctx.restore();
 

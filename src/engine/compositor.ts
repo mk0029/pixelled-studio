@@ -1,11 +1,13 @@
 import { hexToRgb, hslToRgb, polarCoords, rotateUV, sampleShader, type ShaderContext } from "./mathShaders";
 import { renderTextLayer } from "./textRenderer";
 import { renderCharacterVideoLayer, renderSpriteLayer } from "./effects/characterSprites";
+import { renderEmojiCharacterLayerRGBA } from "@/lib/spriteCharacterEngine";
 import { renderDotsLinesLayer } from "./effects/dotsLines";
 import { sampleMedia } from "./mediaRenderer";
 import { sampleMathEffect, getMathEffect } from "./mathCatalog";
 import { audioStore } from "./audio";
-import type { WiringMap } from "./wiringMapper";
+import { applySparkleOverlay } from "./sparkleOverlay";
+import { buildScatterBlankMask, getRecommendedScatterCount, renderRandomScatterBuffer } from "@/lib/randomScatterEngine";
 import type { BlendMode, Layer, Project } from "@/types/project";
 
 const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
@@ -146,8 +148,8 @@ function dotsTiming(layer: Layer, time: number, anySolo: boolean) {
 }
 
 function drawDotsLayer(out: Uint8ClampedArray, layer: Layer, cols: number, rows: number,
-  localT: number, gain: number): void {
-  const buf = renderDotsLinesLayer(layer, cols, rows, localT);
+  localT: number, gain: number, fps: number): void {
+  const buf = renderDotsLinesLayer(layer, cols, rows, localT, fps);
   for (let i = 0; i < cols * rows; i++) {
     const p = i * 3, q = i * 4;
     const a = (buf[q + 3] / 255) * gain;
@@ -170,21 +172,38 @@ function drawDotsLayer(out: Uint8ClampedArray, layer: Layer, cols: number, rows:
   }
 }
 
+/** Scatter belongs to one layer only, and uses the same frame index as AVI export. */
+function drawScatter(out: Uint8ClampedArray, layer: Layer, cols: number, rows: number, time: number, fps: number,
+  before?: Uint8ClampedArray | null): void {
+  const config = layer.scatter;
+  if (!config?.enabled) return;
+  const fpsValue = Math.max(1, fps);
+  const frame = Math.round(time * fpsValue);
+  const mask = config.blankAreaOnly && before
+    ? buildScatterBlankMask(before, out, cols, rows, config.blankPadding ?? 2)
+    : undefined;
+  renderRandomScatterBuffer(out, cols, rows, frame, fpsValue,
+    config.autoCount ? { ...config, count: getRecommendedScatterCount(cols, rows) } : config, mask);
+}
+
 /**
  * Composites every active layer at `time` into a frame buffer in grid order
- * (index = y * cols + x). Exporters reorder it through the wiring map.
+ * (index = y * cols + x). Exporters write it in the same order.
  */
-export function renderFrame(project: Project, time: number, map?: WiringMap, audioLevel = audioStore.level): Uint8ClampedArray {
+export function renderFrame(project: Project, time: number, audioLevel = audioStore.level): Uint8ClampedArray {
   const { cols, rows } = project.hardware;
   const out = new Uint8ClampedArray(cols * rows * 3);
   const anySolo = project.layers.some((l) => l.solo && l.enabled && !l.mute);
-  const wiredIndex = map?.pixels;
 
   // "Behind Content" dots render first, independent of their position in the stack.
   for (const layer of project.layers) {
     if (layer.effect !== "dots-lines" || layer.blend !== "behind") continue;
     const timing = dotsTiming(layer, time, anySolo);
-    if (timing) drawDotsLayer(out, layer, cols, rows, timing.localT, timing.gain);
+    if (timing) {
+      const scatterBefore = layer.scatter?.blankAreaOnly ? out.slice() : null;
+      drawDotsLayer(out, layer, cols, rows, timing.localT, timing.gain, project.fps);
+      drawScatter(out, layer, cols, rows, time, project.fps, scatterBefore);
+    }
   }
 
   for (const layer of project.layers) {
@@ -201,6 +220,7 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
       ? clamp01((layer.duration - elapsed) / layer.fadeOut) : 1;
     const envelope = fadeIn * fadeOut;
     if (envelope <= 0) continue;
+    const scatterBefore = layer.scatter?.blankAreaOnly ? out.slice() : null;
 
     const kb = keyframeValue(layer, time, "brightness");
     const ks = keyframeValue(layer, time, "speed");
@@ -216,16 +236,35 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
     const hueShift = layer.hueShift + (kh ?? 0);
 
     if (layer.effect === "media" || layer.effect === "character-video") {
+      const isEmoji = layer.effect === "character-video" && layer.characterSourceType === "emoji" && layer.emojiCharacter;
       const px = layer.effect === "character-video" && !layer.mediaSrc
-        ? renderCharacterVideoLayer(layer, cols, rows, localT)
+        ? (isEmoji
+            ? renderEmojiCharacterLayerRGBA(cols, rows, Math.round(Math.max(0, localT) * project.fps), project.fps, layer.emojiCharacter!)
+            : renderCharacterVideoLayer(layer, cols, rows, localT, project.fps))
         : sampleMedia(layer, cols, rows, localT);
       if (!px) continue;
       const hueShift = (layer.hueShift || 0) / 360;
       const satMul = (layer.saturation ?? 100) / 100;
       const recolor = hueShift !== 0 || satMul !== 1;
+      const emojiContrast = isEmoji ? (layer.mediaContrast ?? 100) / 100 : 1;
+      const emojiSilhouette = isEmoji && layer.mediaSilhouette === true;
+      const emojiThreshold = Math.max(0, Math.min(255, layer.mediaThreshold ?? 0));
       for (let i = 0; i < cols * rows; i++) {
         const p = i * 3, q = i * 4;
         let srcR = px[q], srcG = px[q + 1], srcB = px[q + 2];
+        if (isEmoji && emojiContrast !== 1) {
+          srcR = (srcR - 128) * emojiContrast + 128;
+          srcG = (srcG - 128) * emojiContrast + 128;
+          srcB = (srcB - 128) * emojiContrast + 128;
+          srcR = Math.max(0, Math.min(255, srcR));
+          srcG = Math.max(0, Math.min(255, srcG));
+          srcB = Math.max(0, Math.min(255, srcB));
+        }
+        if (emojiSilhouette) {
+          const lum = 0.299 * srcR + 0.587 * srcG + 0.114 * srcB;
+          const v = lum >= emojiThreshold ? 255 * ((layer.brightness ?? 100) / 100) : 0;
+          srcR = srcG = srcB = v;
+        }
         if (recolor) {
           const [h, s, l] = rgbToHsl(srcR, srcG, srcB);
           const [r, g, b] = hslToRgb((h + hueShift) % 1, Math.max(0, Math.min(1, s * satMul)), l);
@@ -245,10 +284,11 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
           out[p + 2] = clamp255(blendChannel(out[p + 2], bV, layer.blend));
         }
       }
+      drawScatter(out, layer, cols, rows, time, project.fps, scatterBefore);
       continue;
     }
 
-    const textBuf = layer.effect === "text" ? renderTextLayer(layer, cols, rows, localT) : null;
+    const textBuf = layer.effect === "text" ? renderTextLayer(layer, cols, rows, localT, project.fps) : null;
     if (layer.effect === "text") {
       if (!textBuf) continue;
       for (let i = 0; i < cols * rows; i++) {
@@ -273,6 +313,7 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
           out[p + 2] = clamp255(blendChannel(out[p + 2], srcB, layer.blend));
         }
       }
+      drawScatter(out, layer, cols, rows, time, project.fps, scatterBefore);
       continue;
     }
     const trails = clamp01(layer.trails);
@@ -302,11 +343,13 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
           out[p + 2] = clamp255(blendChannel(out[p + 2], srcB, layer.blend));
         }
       }
+      drawScatter(out, layer, cols, rows, time, project.fps, scatterBefore);
       continue;
     }
 
     if (layer.effect === "dots-lines") {
-      drawDotsLayer(out, layer, cols, rows, localT, gain);
+      drawDotsLayer(out, layer, cols, rows, localT, gain, project.fps);
+      drawScatter(out, layer, cols, rows, time, project.fps, scatterBefore);
       continue;
     }
 
@@ -324,7 +367,7 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
         const { aspect, cx, cy, r } = polarCoords(ru, rv, cols, rows);
         const ctx: ShaderContext = {
           x: sx, y: sy, nx: ru, ny: rv, t: effectiveT, w: cols, h: rows, aspect, cx, cy, r,
-          i: wiredIndex ? wiredIndex[y * cols + x].index : y * cols + x,
+          i: y * cols + x,
           density: layer.scale ?? layer.density,
           angle: 0,
           direction: layer.direction ?? "normal",
@@ -354,62 +397,7 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
         out[p + 2] = clamp255(blendChannel(out[p + 2], cb * value, layer.blend));
       }
     }
-  }
-
-  // Per-line animations own their pixels: clear their ranges first so no other
-  // layer colour bleeds through, then add their own generators on top.
-  const lineAnimations = (project.lineAnimations ?? []).filter((l) => l.enabled);
-  if (lineAnimations.length) {
-    const range = (line: (typeof lineAnimations)[number]) => {
-      const count = line.axis === "column" ? cols : rows;
-      const from = Math.max(0, Math.min(count - 1, Math.round(line.from) - 1));
-      return [from, Math.max(from, Math.min(count - 1, Math.round(line.to) - 1))] as const;
-    };
-    for (const line of lineAnimations) {
-      const [from, to] = range(line);
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const li = line.axis === "column" ? x : y;
-          if (li < from || li > to) continue;
-          const p = (y * cols + x) * 3;
-          out[p] = out[p + 1] = out[p + 2] = 0;
-        }
-      }
-    }
-    for (const line of lineAnimations) {
-      const [from, to] = range(line);
-      const [r0, g0, b0] = hexToRgb(line.color);
-      const gain = Math.max(0, line.brightness) / 100;
-      const span = to - from + 1;
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const li = line.axis === "column" ? x : y;
-          if (li < from || li > to) continue;
-          // Animate inside the assigned line group, not across the whole matrix.
-          const nx = line.axis === "column" ? (li - from + 0.5) / span : (cols > 1 ? x / (cols - 1) : 0.5);
-          const ny = line.axis === "row" ? (li - from + 0.5) / span : (rows > 1 ? y / (rows - 1) : 0.5);
-          const lineW = line.axis === "column" ? span : cols;
-          const lineH = line.axis === "row" ? span : rows;
-          const { aspect, cx, cy, r } = polarCoords(nx, ny, lineW, lineH);
-          const intensity = sampleShader(line.effect, {
-            x: line.axis === "column" ? li - from : x,
-            y: line.axis === "row" ? li - from : y,
-            nx, ny, t: time * line.speed,
-            w: lineW, h: lineH, aspect, cx, cy, r,
-            i: wiredIndex ? wiredIndex[y * cols + x].index : y * cols + x,
-            density: line.density, angle: line.angle,
-            direction: (line as { direction?: string }).direction ?? "normal",
-            sparkleDensity: line.sparkleDensity ?? 6, sparkleRate: line.sparkleRate ?? 9,
-          });
-          if (intensity <= 0) continue;
-          const v = intensity * gain;
-          const p = (y * cols + x) * 3;
-          out[p] = clamp255(out[p] + r0 * v);
-          out[p + 1] = clamp255(out[p + 1] + g0 * v);
-          out[p + 2] = clamp255(out[p + 2] + b0 * v);
-        }
-      }
-    }
+    drawScatter(out, layer, cols, rows, time, project.fps, scatterBefore);
   }
 
   const master = project.masterBrightness / 100;
@@ -417,5 +405,6 @@ export function renderFrame(project: Project, time: number, map?: WiringMap, aud
   for (let i = 0; i < out.length; i++) {
     out[i] = Math.pow(out[i] / 255, invGamma) * 255 * master;
   }
+  applySparkleOverlay(out, cols, rows, time, project);
   return out;
 }

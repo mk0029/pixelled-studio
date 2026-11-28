@@ -1,4 +1,10 @@
 // Offline character presets rendered as indexed pixel frames — no external assets.
+import {
+  createDefaultSpriteCharacterConfig, normalizeSpriteCharacterPresetId,
+  renderSpriteCharacterRGBA, SPRITE_CHARACTER_PRESETS,
+} from "@/lib/spriteCharacterEngine";
+
+export { SPRITE_CHARACTER_PRESETS as CHARACTER_VIDEO_PRESETS };
 
 export interface SpriteFrame {
   w: number;
@@ -34,116 +40,7 @@ const HEART: SpriteDef = {
   ],
 };
 
-const BHANGRA: SpriteDef = {
-  id: "bhangra-silhouette",
-  name: "Dancing Bhangra Silhouette",
-  category: "Dance",
-  frames: [
-    frame([
-      "..1........1..",
-      "...1..11..1...",
-      "....111111....",
-      ".....1111.....",
-      "......11......",
-      "....111111....",
-      "....11..11....",
-      "....1....1....",
-      "...11....11...",
-      "...1......1...",
-      "..11......11..",
-      "..1........1..",
-    ], ["#ffffff"]),
-    frame([
-      "........11....",
-      "...1....11....",
-      "..11..11111...",
-      "....111111....",
-      ".....1111.....",
-      "......11......",
-      "....111111....",
-      "....11..11....",
-      "...11....11...",
-      "..11......11..",
-      "..1........1..",
-      ".11........11.",
-    ], ["#ffffff"]),
-  ],
-};
-
-const DANDIYA: SpriteDef = {
-  id: "dandiya-couple",
-  name: "Dandiya Couple",
-  category: "Dance",
-  frames: [
-    frame([
-      "1............1",
-      ".1...1111...1.",
-      "..1..1221..1..",
-      "...1.1221.1...",
-      "....112211....",
-      ".....1221.....",
-      "....112211....",
-      "...11.22.11...",
-      "..1...22...1..",
-      ".1....22....1.",
-      "1.....22.....1",
-      "......22......",
-    ], ["#ffffff", "#ff5c8a"]),
-    frame([
-      "..1........1..",
-      "...1..11..1...",
-      "....112211....",
-      ".....1221.....",
-      "....112211....",
-      "...11.22.11...",
-      "..1...22...1..",
-      ".1....22....1.",
-      "1.....22.....1",
-      "......22......",
-      ".....1..1.....",
-      "....1....1....",
-    ], ["#ffffff", "#ff5c8a"]),
-  ],
-};
-
-const KALASH: SpriteDef = {
-  id: "kalash-swastik",
-  name: "Wedding Kalash & Swastik",
-  category: "Wedding",
-  frames: [
-    frame([
-      "......11......",
-      ".....1111.....",
-      "....111111....",
-      "....111111....",
-      ".....1111.....",
-      "....111111....",
-      "...11111111...",
-      "..1111111111..",
-      "..1111111111..",
-      "...11111111...",
-      "....111111....",
-      ".....1111.....",
-    ], ["#ffcc66"]),
-    frame([
-      "......22......",
-      ".....2222.....",
-      "....222222....",
-      "....222222....",
-      ".....2222.....",
-      "....222222....",
-      "...22222222...",
-      "..2222222222..",
-      "..2222222222..",
-      "...22222222...",
-      "....222222....",
-      ".....2222.....",
-    ], ["#ffcc66", "#ffef9f"]),
-  ],
-};
-
 export const SPRITES: SpriteDef[] = [HEART];
-export const CHARACTER_VIDEO_PRESETS: SpriteDef[] = [BHANGRA, DANDIYA, KALASH, HEART];
 
 /** Flat indexed sprite renderer used by the legacy "sprites" effect. */
 export function renderSpriteLayer(
@@ -186,58 +83,51 @@ export function renderSpriteLayer(
   return out;
 }
 
-/** Nearest-neighbour preset renderer for stackable character-video layers. */
+/** Stackable character-video preset renderer backed by the 2D sprite/flora engine. */
 export function renderCharacterVideoLayer(
   layer: import("@/types/project").Layer,
   cols: number,
   rows: number,
   time: number,
+  fps = 30,
 ): Uint8ClampedArray {
-  const preset = CHARACTER_VIDEO_PRESETS.find((p) => p.id === layer.spriteType) ?? CHARACTER_VIDEO_PRESETS[0];
-  const speed = Math.max(0.25, Math.min(3, layer.mediaSpeed ?? 1));
-  const current = preset.frames[Math.floor(Math.max(0, time) * speed * 8) % preset.frames.length];
-  const scale = Math.max(0.1, Math.min(3, layer.mediaScale ?? 1));
-  const out = new Uint8ClampedArray(cols * rows * 4);
-  const drawW = Math.max(1, current.w * scale);
-  const drawH = Math.max(1, current.h * scale);
-  const ox = cols / 2 - drawW / 2 + (layer.mediaOffsetX ?? 0);
-  const oy = rows / 2 - drawH / 2 + (layer.mediaOffsetY ?? 0);
+  const presetId = normalizeSpriteCharacterPresetId(layer.spriteCharacter?.presetId ?? layer.spriteType);
+  const config = layer.spriteCharacter
+    ? { ...layer.spriteCharacter, presetId }
+    : createDefaultSpriteCharacterConfig(presetId);
+  if (!layer.spriteCharacter) {
+    config.scale = Math.max(0.5, Math.min(4, layer.mediaScale ?? 1));
+    config.xOffset = layer.mediaOffsetX ?? 0;
+    config.yOffset = layer.mediaOffsetY ?? 0;
+    config.animSpeed = Math.max(0.25, Math.min(3, layer.mediaSpeed ?? 1));
+    config.flipX = !!layer.mediaFlipX;
+  }
+
+  const out = renderSpriteCharacterRGBA(cols, rows, Math.round(Math.max(0, time) * fps), fps, config);
   const brightness = Math.max(0, layer.mediaBrightness ?? 100) / 100;
   const contrast = Math.max(0, layer.mediaContrast ?? 100) / 100;
   const saturation = Math.max(0, layer.mediaSaturation ?? 100) / 100;
   const silhouette = layer.mediaSilhouette === true;
+  const clamp = (v: number) => Math.max(0, Math.min(255, v));
 
-  for (let y = 0; y < Math.ceil(drawH); y++) {
-    for (let x = 0; x < Math.ceil(drawW); x++) {
-      const fx = Math.min(current.w - 1, Math.floor(x / scale));
-      const fy = Math.min(current.h - 1, Math.floor(y / scale));
-      const idx = current.pixels[fy][fx];
-      if (!idx) continue;
-      const color = current.palette[idx - 1] || "#ffffff";
-      let r = parseInt(color.slice(1, 3), 16);
-      let g = parseInt(color.slice(3, 5), 16);
-      let b = parseInt(color.slice(5, 7), 16);
-      if (!silhouette) {
-        r = (r - 128) * contrast + 128 + (brightness - 1) * 128;
-        g = (g - 128) * contrast + 128 + (brightness - 1) * 128;
-        b = (b - 128) * contrast + 128 + (brightness - 1) * 128;
-        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-        r = gray + (r - gray) * saturation;
-        g = gray + (g - gray) * saturation;
-        b = gray + (b - gray) * saturation;
-      } else {
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        r = g = b = lum >= Math.max(0, Math.min(255, layer.mediaThreshold ?? 0)) ? 255 * brightness : 0;
-      }
-      const px = Math.floor(ox + (layer.mediaFlipX ? drawW - 1 - x : x));
-      const py = Math.floor(oy + y);
-      if (px < 0 || px >= cols || py < 0 || py >= rows) continue;
-      const p = (py * cols + px) * 4;
-      out[p] = Math.max(0, Math.min(255, r));
-      out[p + 1] = Math.max(0, Math.min(255, g));
-      out[p + 2] = Math.max(0, Math.min(255, b));
-      out[p + 3] = 255;
+  for (let p = 0; p < out.length; p += 4) {
+    if (out[p + 3] === 0) continue;
+    let r = out[p], g = out[p + 1], b = out[p + 2];
+    if (silhouette) {
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = g = b = lum >= Math.max(0, Math.min(255, layer.mediaThreshold ?? 0)) ? 255 * brightness : 0;
+    } else {
+      r = (r - 128) * contrast + 128 + (brightness - 1) * 128;
+      g = (g - 128) * contrast + 128 + (brightness - 1) * 128;
+      b = (b - 128) * contrast + 128 + (brightness - 1) * 128;
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = gray + (r - gray) * saturation;
+      g = gray + (g - gray) * saturation;
+      b = gray + (b - gray) * saturation;
     }
+    out[p] = clamp(r);
+    out[p + 1] = clamp(g);
+    out[p + 2] = clamp(b);
   }
   return out;
 }

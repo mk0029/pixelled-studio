@@ -7,11 +7,16 @@ type Vec = [number, number];
 const TAU = Math.PI * 2;
 const mod = (v: number, n: number) => ((v % n) + n) % n;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const bounce = (v: number, span: number) => {
-  const s = Math.max(1, span);
-  const p = mod(v, s * 2);
-  return p <= s ? p : s * 2 - p;
-};
+
+/** Deterministic ping-pong coordinate shared by preview and frame-by-frame export. */
+export function bounceCoord(rawPos: number, maxTravel: number): number {
+  if (maxTravel <= 0) return 0;
+  const period = maxTravel * 2;
+  const mod = ((rawPos % period) + period) % period;
+  return mod <= maxTravel ? mod : period - mod;
+}
+
+const HIGH_CONTRAST = ["#ffffff", "#ff0000", "#00ff00", "#0066ff", "#ffff00", "#00ffff", "#ff00ff"];
 const hash = (x: number, y: number, z = 0) => {
   const v = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
   return v - Math.floor(v);
@@ -90,10 +95,10 @@ function stampParticles(layer: Layer, cols: number, rows: number, variance: numb
   return particles;
 }
 
-function scatterParticles(layer: Layer, cols: number, rows: number, variance: number): DotParticle[] {
+function particleParticles(layer: Layer, cols: number, rows: number, variance: number): DotParticle[] {
   const count = clamp(Math.round(layer.dotsCount ?? 80), 1, 500);
   const seed = Math.floor(layer.dotsSeed ?? 1);
-  const distribution = layer.dotsDistribution ?? "scatter";
+  const distribution = layer.dotsDistribution ?? "starfield";
   const randomSize = layer.dotsSizeRandom ?? false;
   const sizeMin = clamp(Math.round(layer.dotsSizeMin ?? 1), 1, 8);
   const sizeMax = clamp(Math.round(layer.dotsSizeMax ?? 3), sizeMin, 8);
@@ -148,11 +153,14 @@ function directionVector(dir: string): Vec {
 }
 
 function particlePosition(p: DotParticle, distance: number, dir: string,
-  cols: number, rows: number, wrap: boolean, jitter: number, phaseTime: number): Vec {
+  cols: number, rows: number, wrap: boolean, jitter: number, phaseTime: number,
+  size = 1, bouncing = false): Vec {
   const wobble = Math.sin(phaseTime * (1.4 + p.seed * 2) + p.phase) * (jitter / 100) * 2;
   const centerX = (cols - 1) / 2;
   const centerY = (rows - 1) / 2;
   const maxR = Math.hypot(centerX, centerY) || 1;
+  const maxX = Math.max(1, cols - size);
+  const maxY = Math.max(1, rows - size);
   const d = distance * p.speed;
 
   if (dir === "radial-out" || dir === "radial-in" || dir === "expand" || dir === "converge") {
@@ -161,21 +169,32 @@ function particlePosition(p: DotParticle, distance: number, dir: string,
     const dy = p.y - centerY;
     const angle = Math.atan2(dy, dx);
     const r0 = Math.hypot(dx, dy);
-    const r = wrap ? mod(r0 + sign * d, maxR) : bounce(r0 + sign * d, maxR);
+    const r = wrap && !bouncing ? mod(r0 + sign * d, maxR) : bounceCoord(r0 + sign * d, Math.max(1, maxR - size));
     return [centerX + Math.cos(angle) * r, centerY + Math.sin(angle) * r];
   }
 
+  const axis = (x: number, y: number): Vec => [
+    bouncing ? bounceCoord(x, maxX) : wrap ? mod(x, cols) : bounceCoord(x, maxX),
+    bouncing ? bounceCoord(y, maxY) : wrap ? mod(y, rows) : bounceCoord(y, maxY),
+  ];
+
   if (dir === "drift") {
     const angle = p.phase + phaseTime * (0.2 + p.seed * 0.5);
-    const x = p.x + Math.cos(angle) * d + wobble;
-    const y = p.y + Math.sin(angle) * d + wobble;
-    return wrap ? [mod(x, cols), mod(y, rows)] : [bounce(x, cols), bounce(y, rows)];
+    return axis(p.x + Math.cos(angle) * d + wobble, p.y + Math.sin(angle) * d + wobble);
   }
 
   const [vx, vy] = directionVector(dir);
-  const x = p.x + vx * d - vy * wobble;
-  const y = p.y + vy * d + vx * wobble;
-  return wrap ? [mod(x, cols), mod(y, rows)] : [bounce(x, cols), bounce(y, rows)];
+  return axis(p.x + vx * d - vy * wobble, p.y + vy * d + vx * wobble);
+}
+
+/** Stamp tiles move as one bounding box, or as a bouncing phase when tiled. */
+function stampBounceOffset(dir: string, d: number, time: number): Vec {
+  const diag = 1 / Math.SQRT2;
+  if (dir === "radial-out" || dir === "expand") return [diag * d, diag * d];
+  if (dir === "radial-in" || dir === "converge") return [-diag * d, -diag * d];
+  if (dir === "drift") return [Math.cos(time) * d, Math.sin(time) * d];
+  const [vx, vy] = directionVector(dir);
+  return [vx * d, vy * d];
 }
 
 function blinkAlpha(layer: Layer, p: DotParticle, time: number): number {
@@ -195,17 +214,21 @@ export function renderDotGenerator(layer: Layer, cols: number, rows: number, tim
   if (cols <= 0 || rows <= 0) return out;
 
   const generator = layer.dotsGenerator ?? "particles";
+  const stampSize = layer.dotsStampSize === 16 ? 16 : 8;
   const variance = clamp((layer.dotsSpeedVariance ?? 20) / 100, 0, 1);
   const particles = generator === "stamp"
     ? stampParticles(layer, cols, rows, variance)
-    : scatterParticles(layer, cols, rows, variance);
+    : particleParticles(layer, cols, rows, variance);
 
   const dir = layer.dotsParticleDirection ?? "down";
   const speed = clamp(layer.dotsParticleSpeed ?? 30, 0, 100);
   const pps = (speed / 100) * Math.max(cols, rows);
   const distance = time * pps;
   const phaseTime = pps > 0 ? time : 0;
+  // Bounce wins over wrap so the single Bounce toggle works for every generator.
+  const bouncing = !!(layer.dotsBounce || layer.dotsWrap === false);
   const wrap = layer.dotsWrap ?? true;
+  const stampBouncing = generator === "stamp" && bouncing;
   const jitter = clamp(layer.dotsJitter ?? 0, 0, 100);
   const trail = clamp(Math.round(layer.dotsTrail ?? 0), 0, 20);
   const glow = layer.dotsGlow ?? false;
@@ -228,24 +251,111 @@ export function renderDotGenerator(layer: Layer, cols: number, rows: number, tim
     const blink = blinkAlpha(layer, p, time);
     if (blink <= 0) continue;
 
+    const positionAt = (d: number): Vec => {
+      if (stampBouncing) {
+        const [ox, oy] = stampBounceOffset(dir, d, phaseTime);
+        if (layer.dotsTile ?? true) {
+          return [mod(p.x + bounceCoord(ox, stampSize), cols), mod(p.y + bounceCoord(oy, stampSize), rows)];
+        }
+        const originX = (cols - stampSize) / 2;
+        const originY = (rows - stampSize) / 2;
+        return [
+          bounceCoord(originX + ox, Math.max(1, cols - stampSize)) + (p.x - originX),
+          bounceCoord(originY + oy, Math.max(1, rows - stampSize)) + (p.y - originY),
+        ];
+      }
+      return particlePosition(p, d, dir, cols, rows, wrap, jitter, phaseTime,
+        generator === "stamp" ? stampSize : p.size, bouncing);
+    };
+
     if (pps > 0) {
       for (let k = trail; k >= 1; k--) {
-        const [tx, ty] = particlePosition(p, distance - k, dir, cols, rows, wrap, jitter, phaseTime);
+        const [tx, ty] = positionAt(distance - k);
         const fade = Math.pow(1 - k / (trail + 1), 1.6);
         const c = colorOf(p, tx, ty);
         paintDot(out, cols, rows, tx, ty, p.size, c, blink * fade, false);
       }
     }
 
-    const [x, y] = particlePosition(p, distance, dir, cols, rows, wrap, jitter, phaseTime);
+    const [x, y] = positionAt(distance);
     if (x < -2 || y < -2 || x > cols + 1 || y > rows + 1) continue;
     paintDot(out, cols, rows, x, y, p.size, colorOf(p, x, y), blink, glow);
   }
   return out;
 }
 
+/** Deterministic drop-and-lock fill; no hidden state, so export matches preview. */
+function renderGravityStack(layer: Layer, cols: number, rows: number, time: number, fps: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(cols * rows * 4);
+  const dir = layer.dotsGravityDirection ?? "top-bottom";
+  const vertical = dir === "top-bottom" || dir === "bottom-top";
+  const lines = vertical ? cols : rows;
+  const cells = vertical ? rows : cols;
+  if (lines <= 0 || cells <= 0) return out;
+
+  const cps = Math.max(1, (layer.dotsParticleSpeed ?? 30) / 5);
+  const hold = clamp(Math.round(layer.dotsGravityHoldFrames ?? 40), 20, 120) / Math.max(1, fps);
+  const bouncing = !!(layer.dotsBounce || layer.dotsWrap === false);
+  const palette = layer.dotsPalette?.length ? layer.dotsPalette : [layer.color || "#ffffff"];
+  const base = hexToRgb(layer.color || "#ffffff");
+  const colorMode = layer.dotsGravityColorMode ?? "palette";
+  const onComplete = layer.dotsGravityOnComplete ?? "cycle-hold";
+  const fill = layer.dotsGravityFill ?? "all";
+  const seed = Math.floor(layer.dotsSeed ?? 1);
+
+  const colorFor = (k: number, line: number, shift: number): RGB => {
+    if (colorMode === "single") return base;
+    if (colorMode === "rainbow") return hslToRgb(mod((k * 360) / cells + line * 9 + shift * 30, 360), 1, 0.55);
+    if (colorMode === "random") {
+      const pick = Math.floor(hash(k + 1, line + 1, seed) * HIGH_CONTRAST.length) % HIGH_CONTRAST.length;
+      return hexToRgb(HIGH_CONTRAST[pick]);
+    }
+    return hexToRgb(palette[(k + shift) % palette.length]);
+  };
+  const draw = (line: number, p: number, color: RGB) => {
+    const x = vertical ? line : dir === "left-right" ? p : cols - 1 - p;
+    const y = vertical ? dir === "top-bottom" ? p : rows - 1 - p : line;
+    put(out, cols, rows, x, y, color, 1);
+  };
+
+  for (let line = 0; line < lines; line++) {
+    // Random rain gives each column its own fall rate as well as its own start delay.
+    const lineCps = fill === "random" ? cps * (0.6 + hash(line + 2, seed) * 0.8) : cps;
+    const fillEnd = (2 * cells - 1) / lineCps;
+    const cycle = fillEnd + hold + cells / lineCps;
+    const delay = fill === "wave" ? line * 0.08 : fill === "random" ? hash(line + 1, seed) * 0.8 : 0;
+    const t = bouncing ? bounceCoord(time - delay, cycle) : mod(time - delay, cycle);
+    for (let k = 0; k < cells; k++) {
+      const target = cells - 1 - k;
+      const active = t - (2 * k) / lineCps;
+      if (active < 0) continue;
+      if (t < fillEnd) {
+        const p = Math.floor(-1 + active * lineCps);
+        if (p >= 0) draw(line, Math.min(target, p), colorFor(k, line, 0));
+        continue;
+      }
+      const q = t - fillEnd;
+      if (onComplete === "flash") {
+        if (q < hold && Math.floor(q * fps * 2) % 2 === 0) draw(line, target, colorFor(k, line, 0));
+      } else if (onComplete === "drain") {
+        if (q < hold) draw(line, target, colorFor(k, line, Math.floor(q * fps) % palette.length));
+        else {
+          const d = Math.floor((q - hold) * lineCps);
+          if (d <= k) draw(line, cells - 1 - (k - d), colorFor(k, line, 0));
+        }
+      } else if (q < hold) {
+        draw(line, target, colorFor(k, line, Math.floor(q * fps) % palette.length));
+      }
+    }
+  }
+  return out;
+}
+
 /** Renders a stackable dots / lines layer into an RGBA buffer. */
-export function renderDotsLinesLayer(layer: Layer, cols: number, rows: number, time: number): Uint8ClampedArray {
+export function renderDotsLinesLayer(layer: Layer, cols: number, rows: number, time: number, fps = 20): Uint8ClampedArray {
+  if (layer.dotsMode === "gravity-stack" || layer.dotsGenerator === "gravity-stack") {
+    return renderGravityStack(layer, cols, rows, time, fps);
+  }
   if ((layer.dotsGenerator ?? "classic") !== "classic") return renderDotGenerator(layer, cols, rows, time);
   const out = new Uint8ClampedArray(cols * rows * 4);
   if (cols <= 0 || rows <= 0) return out;
@@ -260,14 +370,14 @@ export function renderDotsLinesLayer(layer: Layer, cols: number, rows: number, t
   const effect = layer.dotsEffect ?? "solid";
   const colorMode = layer.dotsColorMode ?? "solid";
   const dir = layer.dotsDirection ?? "right";
-  const pingPong = layer.dotsBounce ?? false;
+  const pingPong = !!(layer.dotsBounce || layer.dotsWrap === false);
 
   const centerX = (cols - 1) / 2;
   const centerY = (rows - 1) / 2;
   const maxR = Math.hypot(centerX, centerY) || 1;
   const travel = time * speed * 4;
   const radialStep = Math.max(1, maxR / count);
-  const radialTravel = pingPong ? bounce(travel, radialStep) : mod(travel, radialStep);
+  const radialTravel = pingPong ? bounceCoord(travel, radialStep) : mod(travel, radialStep);
 
   const colCount = Math.max(1, Math.round((count * cols) / rows));
   const rowCount = Math.max(1, count);
@@ -276,7 +386,8 @@ export function renderDotsLinesLayer(layer: Layer, cols: number, rows: number, t
   const diagStep = Math.max(1, (cols + rows) / count);
 
   const axisLen = dir === "up" || dir === "down" ? rows : cols;
-  const axisTravel = pingPong ? bounce(travel, axisLen) : mod(travel, axisLen);
+  // Horizontal lines travel 0..rows-thickness; vertical lines 0..cols-thickness.
+  const axisTravel = pingPong ? bounceCoord(travel, Math.max(1, axisLen - thick)) : mod(travel, axisLen);
   let dx = 0, dy = 0;
   if (dir === "left") dx = -axisTravel;
   else if (dir === "right") dx = axisTravel;
@@ -350,8 +461,11 @@ export function renderDotsLinesLayer(layer: Layer, cols: number, rows: number, t
           break;
         }
         case "diag": {
-          cellX = Math.floor(mod(u + v, diagStep) / diagStep);
-          on = mod(u + v, diagStep) < Math.min(thick, Math.max(1, diagStep - gap));
+          let phase = dir === "diag-ur" ? x - y : dir === "diag-dl" ? y - x : x + y;
+          phase += dir === "expand" ? -radialTravel : dir === "converge" ? radialTravel
+            : dir === "diag-ul" ? -axisTravel : axisTravel;
+          cellX = Math.floor(mod(phase, diagStep) / diagStep);
+          on = mod(phase, diagStep) < Math.min(thick, Math.max(1, diagStep - gap));
           break;
         }
         case "border": {
@@ -359,12 +473,6 @@ export function renderDotsLinesLayer(layer: Layer, cols: number, rows: number, t
           const inset = Math.min(bx, by, cols - 1 - bx, rows - 1 - by);
           cellX = cellY = Math.floor(inset / (thick + gap));
           on = cellX < count && mod(inset, thick + gap) < thick;
-          break;
-        }
-        case "scatter": {
-          on = hash(ux, uy) < count / (colCount * rowCount);
-          const size = clamp(Math.min(colStep, rowStep) - gap, 1, thick);
-          on = on && Math.abs(localX - colStep / 2) < size / 2 && Math.abs(localY - rowStep / 2) < size / 2;
           break;
         }
         default: {

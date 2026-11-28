@@ -1,4 +1,10 @@
 import { DEFAULT_HARDWARE, type HardwareConfig } from "./hardware";
+import { normalizeEmojiLayerConfig, normalizeText3D, type EmojiLayerConfig, type Text3DConfig } from "./layers";
+import { getRecommendedScatterCount, type RandomScatterConfig } from "@/lib/randomScatterEngine";
+import {
+  createDefaultSpriteCharacterConfig, normalizeSpriteCharacterConfig, normalizeSpriteCharacterPresetId,
+  type SpriteCharacterConfig,
+} from "@/lib/spriteCharacterEngine";
 
 export type BlendMode = "normal" | "add" | "lighter" | "multiply" | "screen" | "overlay" | "difference" | "max" | "behind";
 export type Symmetry = "none" | "horizontal" | "vertical" | "quad";
@@ -174,8 +180,8 @@ export interface Layer {
   blend: BlendMode;
   direction?: string;
   // Dots / Lines layer params
-  dotsMode?: "dots" | "lines" | "dashed";
-  dotsLayout?: "grid" | "checkerboard" | "hstrips" | "vstrips" | "diag" | "border" | "scatter";
+  dotsMode?: "dots" | "lines" | "dashed" | "gravity-stack";
+  dotsLayout?: "grid" | "checkerboard" | "hstrips" | "vstrips" | "diag" | "border";
   dotsCount?: number;
   dotsThickness?: number;
   dotsLength?: number;
@@ -186,8 +192,8 @@ export interface Layer {
   dotsColorMode?: "solid" | "dual" | "rainbow" | "cycle" | "single" | "palette" | "gradient";
   dotsBounce?: boolean;
   // Custom dots control: procedural particles or hand-drawn stamp.
-  dotsGenerator?: "classic" | "particles" | "stamp";
-  dotsDistribution?: "scatter" | "starfield" | "rain" | "cluster" | "wave";
+  dotsGenerator?: "classic" | "particles" | "stamp" | "gravity-stack";
+  dotsDistribution?: "starfield" | "rain" | "cluster" | "wave";
   dotsSeed?: number;
   dotsSizeRandom?: boolean;
   dotsSizeMin?: number;
@@ -204,7 +210,17 @@ export interface Layer {
   dotsBlinkMode?: "none" | "sync" | "twinkle" | "sparkle";
   dotsPalette?: string[];
   dotsGlow?: boolean;
+  // Gravity Stack / Fill
+  dotsGravityDirection?: "top-bottom" | "bottom-top" | "left-right" | "right-left";
+  dotsGravityFill?: "all" | "wave" | "random";
+  dotsGravityColorMode?: "single" | "palette" | "rainbow" | "random";
+  dotsGravityOnComplete?: "cycle-hold" | "drain" | "flash";
+  dotsGravityHoldFrames?: number;
+  /** Independent random-scatter settings for this animation only. */
+  scatter?: RandomScatterConfig;
   spriteType?: string;
+  /** Dedicated per-layer 2D pixel-art sprite/flora settings. */
+  spriteCharacter?: SpriteCharacterConfig;
   spriteCount?: number;
   spriteScale?: number;
   spriteSpeed?: number;
@@ -231,6 +247,19 @@ export interface Layer {
   textShadow?: boolean;
   /** Extra stroke width to keep Devanagari matras legible on small matrices. */
   textStroke?: number;
+  /** 3D extrusion and motion for text/emoji layers. */
+  text3d?: Text3DConfig;
+  /** Horizontal pixel offset for text (LED pixels). */
+  textXOffset?: number;
+  /** Vertical pixel offset for text (LED pixels). */
+  textYOffset?: number;
+  /** Generic pixel offsets (compatibility alias). */
+  xOffset?: number;
+  yOffset?: number;
+  /** Selected source for character-video layers. */
+  characterSourceType?: "sprite" | "emoji" | "video";
+  /** Emoji configuration for character-video layers. */
+  emojiCharacter?: EmojiLayerConfig;
   // Media layer fields
   mediaType?: "image" | "video" | "gif" | "webm" | "avi" | "swf" | "sfx";
   // Characters / real-world video preprocessing
@@ -249,44 +278,6 @@ export interface Layer {
   mathParams?: Record<string, number>;
 }
 
-/** An animation assigned to one line (drop/column or row) with its own isolated colour. */
-export interface LineAnimation {
-  id: string;
-  name: string;
-  axis: "column" | "row";
-  /** 1-based line numbers, inclusive. */
-  from: number;
-  to: number;
-  effect: EffectId;
-  color: string;
-  angle: number;
-  speed: number;
-  density: number;
-  brightness: number;
-  sparkleDensity: number;
-  sparkleRate: number;
-  enabled: boolean;
-}
-
-export function makeLineAnimation(index = 1): LineAnimation {
-  return {
-    id: uid(),
-    name: `Line ${index}`,
-    axis: "column",
-    from: index,
-    to: index,
-    effect: "bounce",
-    color: "#ff5c8a",
-    angle: 90,
-    speed: 1,
-    density: 1.4,
-    brightness: 85,
-    sparkleDensity: 6,
-    sparkleRate: 9,
-    enabled: true,
-  };
-}
-
 export interface Project {
   id: string;
   name: string;
@@ -295,8 +286,14 @@ export interface Project {
   duration: number;
   masterBrightness: number;
   gamma: number;
+  /** Global post-render sparkle overlay, applied after every layer. */
+  sparkleOverlay?: boolean;
+  sparkleOverlayColorMode?: "solid" | "random" | "palette";
+  sparkleOverlayColor?: string;
+  sparkleOverlayPalette?: string[];
+  sparkleOverlayDensity?: number;
+  sparkleOverlaySpeed?: number;
   layers: Layer[];
-  lineAnimations: LineAnimation[];
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -354,7 +351,7 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     dotsColorMode: "solid",
     dotsBounce: false,
     dotsGenerator: "particles",
-    dotsDistribution: "scatter",
+    dotsDistribution: "starfield",
     dotsSeed: Math.floor(Math.random() * 1_000_000),
     dotsSizeRandom: false,
     dotsSizeMin: 1,
@@ -369,8 +366,13 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     dotsTrail: 0,
     dotsWrap: true,
     dotsBlinkMode: "none",
-    dotsPalette: ["#ffffff", "#9a7cff", "#38e1d4", "#ff5c8a"],
+    dotsPalette: ["#ff0000", "#ffd700", "#00ff00", "#00ffff", "#ffffff"],
     dotsGlow: false,
+    dotsGravityDirection: "top-bottom",
+    dotsGravityFill: "all",
+    dotsGravityColorMode: "palette",
+    dotsGravityOnComplete: "cycle-hold",
+    dotsGravityHoldFrames: 40,
     mediaType: effect === "character-video" ? "video" : undefined,
     mediaScale: 1,
     mediaScaleY: 1,
@@ -384,7 +386,10 @@ export function makeLayer(effect: EffectId, index = 1): Layer {
     mediaThreshold: 0,
     mediaSilhouette: false,
     mediaFlipX: false,
-    spriteType: effect === "character-video" ? "bhangra-silhouette" : "heart",
+    spriteType: effect === "character-video" ? "bhangra-dancer" : "heart",
+    spriteCharacter: effect === "character-video" ? createDefaultSpriteCharacterConfig("bhangra-dancer") : undefined,
+  characterSourceType: effect === "character-video" ? "sprite" : undefined,
+  emojiCharacter: effect === "character-video" ? normalizeEmojiLayerConfig(null) : undefined,
     spriteCount: 1,
     spriteScale: 1,
     spriteSpeed: 1,
@@ -410,20 +415,55 @@ export function defaultProject(): Project {
     duration: 12,
     masterBrightness: 100,
     gamma: 2.2,
+    sparkleOverlay: false,
+    sparkleOverlayColorMode: "solid",
+    sparkleOverlayColor: "#ffffff",
+    sparkleOverlayPalette: ["#ffffff", "#ff0000", "#00ff00", "#00ffff"],
+    sparkleOverlayDensity: 6,
+    sparkleOverlaySpeed: 4,
     layers: [],
-    lineAnimations: [],
   };
 }
 
 /** Fill in fields added after older project files were saved. */
 export function normalizeProject(project: Project): Project {
+  const cols = Math.max(4, Math.min(512, Math.round(project.hardware?.cols ?? DEFAULT_HARDWARE.cols)));
+  const rows = Math.max(4, Math.min(512, Math.round(project.hardware?.rows ?? DEFAULT_HARDWARE.rows)));
+  const totalLeds = cols * rows;
+  // Drop the removed per-line animation field from older saved files.
+  const clean = { ...project } as Project & { lineAnimations?: unknown };
+  delete clean.lineAnimations;
   return {
-    ...project,
-    hardware: { ...DEFAULT_HARDWARE, ...project.hardware },
-    lineAnimations: project.lineAnimations ?? [],
+    ...clean,
+    hardware: {
+      colorOrder: project.hardware?.colorOrder ?? DEFAULT_HARDWARE.colorOrder,
+      channels: project.hardware?.channels ?? DEFAULT_HARDWARE.channels,
+      cols,
+      rows,
+      showPitch: project.hardware?.showPitch ?? DEFAULT_HARDWARE.showPitch,
+    },
+    sparkleOverlay: project.sparkleOverlay ?? false,
+    sparkleOverlayColorMode: project.sparkleOverlayColorMode ?? "solid",
+    sparkleOverlayColor: project.sparkleOverlayColor ?? "#ffffff",
+    sparkleOverlayPalette: project.sparkleOverlayPalette?.length ? project.sparkleOverlayPalette : ["#ffffff", "#ff0000", "#00ff00", "#00ffff"],
+    sparkleOverlayDensity: Math.max(1, Math.min(25, project.sparkleOverlayDensity ?? 6)),
+    sparkleOverlaySpeed: Math.max(1, Math.min(10, project.sparkleOverlaySpeed ?? 4)),
     layers: project.layers.map((l) => {
       const stampSize = l.dotsStampSize === 16 ? 16 : 8;
       const sizeMin = Math.max(1, Math.min(8, Math.round(l.dotsSizeMin ?? 1)));
+      const spriteCharacter = l.effect === "character-video"
+        ? l.spriteCharacter
+          ? normalizeSpriteCharacterConfig({ ...l.spriteCharacter, presetId: l.spriteCharacter.presetId ?? l.spriteType })
+          : (() => {
+              const cfg = createDefaultSpriteCharacterConfig(normalizeSpriteCharacterPresetId(l.spriteType));
+              cfg.scale = Math.max(0.5, Math.min(4, l.mediaScale ?? 1));
+              cfg.xOffset = Math.round(l.mediaOffsetX ?? 0);
+              cfg.yOffset = Math.round(l.mediaOffsetY ?? 0);
+              cfg.animSpeed = Math.max(0.25, Math.min(3, l.mediaSpeed ?? 1));
+              cfg.flipX = !!l.mediaFlipX;
+              return cfg;
+            })()
+        : undefined;
       return {
       ...l,
       sparkleDensity: l.sparkleDensity ?? 6,
@@ -453,6 +493,11 @@ export function normalizeProject(project: Project): Project {
       textOutline: l.textOutline ?? false,
       textShadow: l.textShadow ?? false,
       textStroke: Math.max(0, Math.min(4, l.textStroke ?? 0)),
+      text3d: normalizeText3D(l.text3d),
+      textXOffset: Math.max(-Math.max(48, cols), Math.min(Math.max(48, cols), Math.round(l.textXOffset ?? l.xOffset ?? 0))),
+      textYOffset: Math.max(-Math.max(48, rows), Math.min(Math.max(48, rows), Math.round(l.textYOffset ?? l.yOffset ?? 0))),
+      xOffset: Math.max(-Math.max(48, cols), Math.min(Math.max(48, cols), Math.round(l.xOffset ?? l.textXOffset ?? 0))),
+      yOffset: Math.max(-Math.max(48, rows), Math.min(Math.max(48, rows), Math.round(l.yOffset ?? l.textYOffset ?? 0))),
       mediaType: l.mediaType,
       mediaFrames: l.mediaFrames ?? 0,
       mediaFps: l.mediaFps ?? 12,
@@ -483,6 +528,16 @@ export function normalizeProject(project: Project): Project {
       mediaGamma: l.mediaGamma ?? 1,
       mediaThreshold: l.mediaThreshold ?? 0,
       mediaSilhouette: l.mediaSilhouette ?? false,
+      spriteCharacter,
+      characterSourceType: l.effect === "character-video"
+        ? (l.characterSourceType ?? (l.mediaSrc ? "video" : "sprite"))
+        : l.characterSourceType,
+      emojiCharacter: l.effect === "character-video"
+        ? normalizeEmojiLayerConfig(l.emojiCharacter)
+        : l.emojiCharacter,
+      spriteType: l.effect === "character-video"
+        ? normalizeSpriteCharacterPresetId(spriteCharacter?.presetId ?? l.spriteType)
+        : l.spriteType,
       dotsMode: l.dotsMode ?? "dots",
       dotsLayout: l.dotsLayout ?? "grid",
       dotsCount: l.dotsCount ?? 8,
@@ -496,7 +551,7 @@ export function normalizeProject(project: Project): Project {
       dotsBounce: l.dotsBounce ?? false,
       // Older saved layers keep their classic grid/layout behaviour.
       dotsGenerator: l.dotsGenerator ?? "classic",
-      dotsDistribution: l.dotsDistribution ?? "scatter",
+      dotsDistribution: l.dotsDistribution ?? "starfield",
       dotsSeed: Math.max(0, Math.floor(l.dotsSeed ?? 1)),
       dotsSizeRandom: l.dotsSizeRandom ?? false,
       dotsSizeMin: sizeMin,
@@ -512,8 +567,23 @@ export function normalizeProject(project: Project): Project {
       dotsTrail: Math.max(0, Math.min(20, Math.round(l.dotsTrail ?? 0))),
       dotsWrap: l.dotsWrap ?? true,
       dotsBlinkMode: l.dotsBlinkMode ?? "none",
-      dotsPalette: (l.dotsPalette?.length ? l.dotsPalette.slice(0, 4) : ["#ffffff", "#9a7cff", "#38e1d4", "#ff5c8a"]),
+      dotsPalette: (l.dotsPalette?.length ? l.dotsPalette.slice(0, 8) : ["#ffffff", "#ffd700", "#00ff00", "#00ffff", "#ff0000"]),
       dotsGlow: l.dotsGlow ?? false,
+      dotsGravityDirection: l.dotsGravityDirection ?? "top-bottom",
+      dotsGravityFill: l.dotsGravityFill ?? "all",
+      dotsGravityColorMode: l.dotsGravityColorMode ?? "palette",
+      dotsGravityOnComplete: l.dotsGravityOnComplete ?? "cycle-hold",
+      dotsGravityHoldFrames: Math.max(20, Math.min(120, Math.round(l.dotsGravityHoldFrames ?? 40))),
+      scatter: l.scatter ? {
+        ...l.scatter,
+        count: l.scatter.autoCount ? getRecommendedScatterCount(cols, rows)
+          : Math.max(Math.min(10, totalLeds), Math.min(totalLeds, Math.round(l.scatter.count))),
+        paletteColors: l.scatter.paletteColors?.length ? l.scatter.paletteColors.slice(0, 4)
+          : ["#FFFFFF", "#FF0000", "#FFD700"],
+        tailLength: Math.max(2, Math.min(50, Math.round(l.scatter.tailLength ?? Math.max(2, Math.round(rows * 0.15))))),
+        blankAreaOnly: l.scatter.blankAreaOnly === true,
+        blankPadding: Math.max(0, Math.min(8, Math.round(l.scatter.blankPadding ?? 2))),
+      } : undefined,
       mediaCropX: l.mediaCropX ?? 0,
       mediaCropY: l.mediaCropY ?? 0,
       mediaCropW: l.mediaCropW ?? 0,

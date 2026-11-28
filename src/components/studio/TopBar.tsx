@@ -5,13 +5,12 @@ import { Icon } from "./icons";
 interface Props {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
-  onExport: () => void;
-  onLibrary: () => void;
 }
 
 export default function TopBar(p: Props) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-[#0B0F17] px-3"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}>
       <div className="grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-blue-500 to-amber-500 text-[13px] font-black text-zinc-950">
         T
       </div>
@@ -27,12 +26,6 @@ export default function TopBar(p: Props) {
       >
         <Icon name="instagram" size={13} />
       </a>
-      <button type="button" onClick={p.onLibrary} className="btn" title="Cloud animation library">
-        Library
-      </button>
-      <button type="button" onClick={p.onExport} className="btn" title="Export">
-        Export
-      </button>
       <button
         type="button"
         onClick={p.onToggleSidebar}

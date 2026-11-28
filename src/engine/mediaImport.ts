@@ -1,4 +1,3 @@
-import type { WiringMap } from "./wiringMapper";
 import { parseSfx } from "./sfxParser";
 
 export interface ImportedMedia {

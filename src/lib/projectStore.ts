@@ -10,7 +10,6 @@ export interface ProjectMeta {
   savedAt: number;
   cols: number;
   rows: number;
-  routing: string;
   layerCount: number;
 }
 
@@ -27,7 +26,7 @@ function writeJson(key: string, value: unknown) {
 
 const metaOf = (p: Project): ProjectMeta => ({
   id: p.id, name: p.name, savedAt: Date.now(),
-  cols: p.hardware.cols, rows: p.hardware.rows, routing: p.hardware.routing,
+  cols: p.hardware.cols, rows: p.hardware.rows,
   layerCount: p.layers.length,
 });
 

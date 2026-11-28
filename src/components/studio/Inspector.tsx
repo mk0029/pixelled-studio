@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { BlendMode, EffectId, Layer, LineAnimation, Project, Symmetry } from "@/types/project";
-import { EFFECTS, makeDotsStamp, makeLineAnimation } from "@/types/project";
+import type { BlendMode, Layer, Project, Symmetry } from "@/types/project";
+import { EFFECTS, makeDotsStamp } from "@/types/project";
 import { validateExpression } from "@/engine/expression";
 import { audioStore, startAudio, stopAudio } from "@/engine/audio";
 import { Icon } from "./icons";
 import { FONT_FAMILIES } from "@/engine/fontFamilies";
+import { normalizeText3D } from "@/types/layers";
+import RandomScatterPanel from "./panels/RandomScatterPanel";
+import EmojiPicker from "./panels/EmojiPicker";
+import Text3DControls from "./panels/Text3DControls";
 
 interface Props {
   project: Project;
@@ -15,13 +19,15 @@ interface Props {
   onLayer: (patch: Partial<Layer>) => void;
   onAction: (action: "delete" | "duplicate" | "split" | "up" | "down") => void;
   onGamma: (v: number) => void;
+  onProject: (patch: Partial<Project>) => void;
   onAddKeyframe: () => void;
-  onLineAnimations: (updater: (prev: LineAnimation[]) => LineAnimation[]) => void;
-  width: number;
+  width?: number | string;
+  /** Render inside a parent scroll container: no own header or scrollbar. */
+  embedded?: boolean;
 }
 
 const ANGLES = [["↑", 0], ["↗", 45], ["→", 90], ["↘", 135], ["↓", 180], ["↙", 225], ["←", 270], ["↖", 315]] as const;
-const EFFECT_OPTIONS = EFFECTS.filter((e) => e.kind === "effect" || e.kind === "math");
+const card = "space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5";
 const EXPR_PRESETS: [string, string][] = [
   ["Plasma", "sin(u * 12 + t) * cos(v * 9 - t)"],
   ["Sweep", "max(0, 1 - abs(u - fract(t * 0.28)) * 9)"],
@@ -105,13 +111,13 @@ function DotsStampEditor({ size, bits, onPatch }: { size: 8 | 16; bits: boolean[
 
 export default function Inspector(p: Props) {
   const l = p.layer;
-  const lines = p.project.lineAnimations ?? [];
   const [micOn, setMicOn] = useState(audioStore.enabled);
   const [micBusy, setMicBusy] = useState(false);
   const [micError, setMicError] = useState("");
   const [fontScript, setFontScript] = useState<string>("all");
+  const textInputRef = useRef<HTMLInputElement | null>(null);
   const exprError = l?.effect === "custom" ? validateExpression(l.expression) : null;
-  const dotsGenerator = l?.dotsGenerator ?? "classic";
+  const dotsGenerator = l?.dotsMode === "gravity-stack" ? "gravity-stack" : l?.dotsGenerator ?? "classic";
   const stampSize: 8 | 16 = l?.dotsStampSize === 16 ? 16 : 8;
   const stampBits = l?.dotsStamp && l.dotsStamp.length === stampSize * stampSize
     ? l.dotsStamp : makeDotsStamp(stampSize);
@@ -149,16 +155,19 @@ export default function Inspector(p: Props) {
       ))}
     </div>
   );
-  const patchLine = (id: string, patch: Partial<LineAnimation>) =>
-    p.onLineAnimations((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
 
   return (
-    <aside style={{ width: p.width }} className="flex shrink-0 flex-col border-l border-zinc-800 bg-zinc-950">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-zinc-800 px-3">
-        <Icon name="sliders" size={14} />
-        <span className="label">Layer & post-process inspector</span>
-      </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-auto p-3">
+    <aside style={p.width ? { width: p.width } : undefined}
+      className={p.width
+        ? "flex min-w-0 shrink-0 flex-col border-l border-white/10 bg-[#0B0F17]"
+        : "flex min-w-0 w-full flex-col"}>
+      {!p.embedded && (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/10 px-3">
+          <Icon name="sliders" size={14} />
+          <span className="label">Layer &amp; post-process inspector</span>
+        </div>
+      )}
+      <div className={p.embedded ? "space-y-3 p-3" : "min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain scroll-pb-4 p-3"}>
         {!l ? (
           <div className="rounded-lg border border-dashed border-zinc-700 p-6 text-center text-[11px] text-zinc-500">
             Select a clip in the timeline or add a generator from the left dock.
@@ -173,7 +182,7 @@ export default function Inspector(p: Props) {
               {(EFFECTS.find((e) => e.id === l.effect)?.name) ?? (l.effect === "text" ? "Text Layer" : l.effect)} · {l.kind} layer
             </div>
 
-            <section>
+            <section className={card}>
               <div className="label mb-2">Clip timing</div>
               <div className="grid grid-cols-2 gap-2">
                 {([["Start (s)", "startTime"], ["Duration (s)", "duration"], ["Fade In (s)", "fadeIn"], ["Fade Out (s)", "fadeOut"]] as const).map(([label, key]) => (
@@ -190,7 +199,7 @@ export default function Inspector(p: Props) {
               </label>
             </section>
 
-            <section className="space-y-3">
+            <section className={card}>
               {slider("Brightness", l.brightness, 0, 100, 1, (v) => p.onLayer({ brightness: v }), "%")}
               {l.effect !== "media" && l.effect !== "dots-lines" && slider("Speed", l.speed < 0.2 ? 0.2 : l.speed, 0.2, 3, 0.1, (v) => p.onLayer({ speed: Math.max(0.2, v) }), "×")}
               {l.effect !== "media" && l.effect !== "dots-lines" && slider("Density / Scale", l.scale ?? l.density, 0.1, 5, 0.1, (v) => p.onLayer({ scale: Math.max(0.1, Math.min(5, v)) }), "×")}
@@ -219,7 +228,7 @@ export default function Inspector(p: Props) {
             </section>
 
             {l.effect === "custom" && (
-              <section className="space-y-2 rounded-lg border border-violet-500/25 bg-violet-500/[.04] p-2.5">
+              <section className={card}>
                 <div className="flex items-center justify-between">
                   <span className="label">Expression shader</span>
                   <span className={`font-mono text-[9px] ${exprError ? "text-red-400" : "text-teal-400"}`}>
@@ -241,7 +250,7 @@ export default function Inspector(p: Props) {
             )}
 
             {l.effect === "media" && (
-              <section className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2.5">
+              <section className={card}>
                 <div className="label">Media source</div>
                 {l.mediaSrc ? (
                   <>
@@ -263,7 +272,7 @@ export default function Inspector(p: Props) {
             )}
 
             {(l.effect === "media" || l.effect === "character-video") && l.mediaSrc ? (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Transform</div>
                 {slider("Width", l.mediaScale ?? 1, 0.1, 2, 0.05, (v) => p.onLayer({ mediaScale: v }), "×")}
                 {slider("Height", l.mediaScaleY ?? l.mediaScale ?? 1, 0.1, 2, 0.05, (v) => p.onLayer({ mediaScaleY: v }), "×")}
@@ -290,7 +299,7 @@ export default function Inspector(p: Props) {
             ) : null}
 
             {(l.effect === "media" || l.effect === "character-video") && l.mediaSrc ? (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Fit & channels</div>
                 <label className="block">
                   <div className="mb-1 label">Fit mode</div>
@@ -315,7 +324,7 @@ export default function Inspector(p: Props) {
             ) : null}
 
             {(l.effect === "media" || l.effect === "character-video") && l.mediaSrc ? (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Chroma key & matrix preprocessing</div>
                 <label className="flex items-center gap-2 text-[11px] text-zinc-400">
                   <input type="checkbox" checked={l.mediaChromaEnabled ?? false} onChange={(e) => p.onLayer({ mediaChromaEnabled: e.target.checked })} />
@@ -343,7 +352,7 @@ export default function Inspector(p: Props) {
             ) : null}
 
             {l.effect === "media" && l.mediaFrames ? (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Media playback</div>
                 {slider("Speed", l.mediaSpeed ?? 1, 0.1, 4, 0.1, (v) => p.onLayer({ mediaSpeed: v }), "×")}
                 {slider("Frame rate", l.mediaFps ?? 12, 2, 60, 1, (v) => p.onLayer({ mediaFps: v }), " fps")}
@@ -359,7 +368,7 @@ export default function Inspector(p: Props) {
             ) : null}
 
             {l.effect === "media" && !l.mediaFrames && l.mediaSrc ? (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Image fit</div>
                 <label className="flex items-center gap-2 text-[11px] text-zinc-400">
                   <input type="checkbox" checked={l.mediaSmoothing !== false} onChange={(e) => p.onLayer({ mediaSmoothing: e.target.checked })} />
@@ -370,28 +379,78 @@ export default function Inspector(p: Props) {
             ) : null}
 
             {l.effect === "dots-lines" && (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Dots / Lines layer</div>
 
-                {l.dotsMode === "dots" && (
-                  <section className="space-y-3 rounded-lg border border-cyan-500/25 bg-cyan-500/[.03] p-2.5">
+                {(l.dotsMode === "dots" || l.dotsMode === "gravity-stack") && (
+                  <section className={card}>
                     <div className="label">Dots control</div>
                     <label className="block">
                       <div className="mb-1 label">Generator</div>
-                      <select className="field" value={dotsGenerator} onChange={(e) => p.onLayer({ dotsGenerator: e.target.value as any })}>
+                      <select className="field" value={dotsGenerator} onChange={(e) => p.onLayer({
+                        dotsGenerator: e.target.value as any,
+                        dotsMode: e.target.value === "gravity-stack" ? "gravity-stack" : l.dotsMode === "gravity-stack" ? "dots" : l.dotsMode,
+                      })}>
                         <option value="particles">Procedural Particles</option>
                         <option value="stamp">Custom Dot Stamp</option>
                         <option value="classic">Classic Layout</option>
+                        <option value="gravity-stack">Gravity Stack / Fill</option>
                       </select>
                     </label>
+
+                    {(l.dotsGenerator === "gravity-stack" || l.dotsMode === "gravity-stack") && (
+                      <>
+                        <label className="block">
+                          <div className="mb-1 label">Spawn edge</div>
+                          <select className="field" value={l.dotsGravityDirection ?? "top-bottom"} onChange={(e) => p.onLayer({ dotsGravityDirection: e.target.value as any })}>
+                            <option value="top-bottom">Top → Bottom</option><option value="bottom-top">Bottom → Top</option>
+                            <option value="left-right">Left → Right</option><option value="right-left">Right → Left</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <div className="mb-1 label">Fill pattern</div>
+                          <select className="field" value={l.dotsGravityFill ?? "all"} onChange={(e) => p.onLayer({ dotsGravityFill: e.target.value as any })}>
+                            <option value="all">All Lines Together</option><option value="wave">Wave / Staggered</option><option value="random">Random Rain Fill</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <div className="mb-1 label">Per-dot color</div>
+                          <select className="field" value={l.dotsGravityColorMode ?? "palette"} onChange={(e) => p.onLayer({ dotsGravityColorMode: e.target.value as any })}>
+                            <option value="single">Layer Color / Gradient</option><option value="palette">Per-Dot Palette Cycle</option>
+                            <option value="rainbow">Rainbow Stack</option><option value="random">Random High-Contrast</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <div className="mb-1 label">On complete</div>
+                          <select className="field" value={l.dotsGravityOnComplete ?? "cycle-hold"} onChange={(e) => p.onLayer({ dotsGravityOnComplete: e.target.value as any })}>
+                            <option value="cycle-hold">Color Cycle & Hold</option><option value="drain">Drain Out (Bottom Drop)</option><option value="flash">Flash & Reset</option>
+                          </select>
+                        </label>
+                        {slider("Drop speed", l.dotsParticleSpeed ?? 30, 5, 100, 1, (v) => p.onLayer({ dotsParticleSpeed: v }), "%")}
+                        {slider("Hold frames", l.dotsGravityHoldFrames ?? 40, 20, 120, 1, (v) => p.onLayer({ dotsGravityHoldFrames: v }))}
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                          <input type="checkbox" checked={l.dotsBounce ?? false} onChange={(e) => p.onLayer({ dotsBounce: e.target.checked, dotsWrap: !e.target.checked })} />
+                          Bounce / Ping-Pong
+                        </label>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {(l.dotsPalette ?? []).map((color, i) => (
+                            <input key={i} type="color" aria-label={`Stack color ${i + 1}`} value={color} onChange={(e) => {
+                              const next = [...(l.dotsPalette ?? [])];
+                              next[i] = e.target.value;
+                              p.onLayer({ dotsPalette: next });
+                            }} className="h-6 w-7 cursor-pointer bg-transparent" />
+                          ))}
+                          {(l.dotsPalette?.length ?? 0) < 8 && <button className="chip" onClick={() => p.onLayer({ dotsPalette: [...(l.dotsPalette ?? []), "#ffffff"] })}>+ color</button>}
+                        </div>
+                      </>
+                    )}
 
                     {dotsGenerator === "particles" && (
                       <>
                         {slider("Dot count / density", l.dotsCount ?? 80, 1, 500, 1, (v) => p.onLayer({ dotsCount: v }))}
                         <label className="block">
                           <div className="mb-1 label">Distribution</div>
-                          <select className="field" value={l.dotsDistribution ?? "scatter"} onChange={(e) => p.onLayer({ dotsDistribution: e.target.value as any })}>
-                            <option value="scatter">Random Scatter</option>
+                          <select className="field" value={l.dotsDistribution ?? "starfield"} onChange={(e) => p.onLayer({ dotsDistribution: e.target.value as any })}>
                             <option value="starfield">Starfield</option>
                             <option value="rain">Falling Rain</option>
                             <option value="cluster">Cluster / Swarm</option>
@@ -436,7 +495,7 @@ export default function Inspector(p: Props) {
                       </>
                     )}
 
-                    {dotsGenerator !== "classic" && (
+                    {dotsGenerator !== "classic" && dotsGenerator !== "gravity-stack" && (
                       <>
                         <label className="block">
                           <div className="mb-1 label">Direction</div>
@@ -454,8 +513,12 @@ export default function Inspector(p: Props) {
                         {slider("Jitter", l.dotsJitter ?? 0, 0, 100, 1, (v) => p.onLayer({ dotsJitter: v }), "%")}
                         {slider("Trail length", l.dotsTrail ?? 0, 0, 20, 1, (v) => p.onLayer({ dotsTrail: v }), " px")}
                         <label className="flex items-center gap-2 text-[11px] text-zinc-400">
-                          <input type="checkbox" checked={l.dotsWrap ?? true} onChange={(e) => p.onLayer({ dotsWrap: e.target.checked })} />
+                          <input type="checkbox" checked={l.dotsWrap ?? true} onChange={(e) => p.onLayer({ dotsWrap: e.target.checked, dotsBounce: e.target.checked ? false : l.dotsBounce })} />
                           Wrap at edges (off = bounce)
+                        </label>
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                          <input type="checkbox" checked={l.dotsBounce ?? false} onChange={(e) => p.onLayer({ dotsBounce: e.target.checked, dotsWrap: !e.target.checked })} />
+                          Bounce / Ping-Pong
                         </label>
                         <label className="block">
                           <div className="mb-1 label">Blink / twinkle</div>
@@ -499,13 +562,17 @@ export default function Inspector(p: Props) {
 
                 <label className="block">
                   <div className="mb-1 label">Mode</div>
-                  <select className="field" value={l.dotsMode ?? "dots"} onChange={(e) => p.onLayer({ dotsMode: e.target.value as any })}>
+                  <select className="field" value={l.dotsMode ?? "dots"} onChange={(e) => p.onLayer({
+                    dotsMode: e.target.value as any,
+                    dotsGenerator: e.target.value === "gravity-stack" ? "gravity-stack" : dotsGenerator === "gravity-stack" ? "classic" : dotsGenerator,
+                  })}>
                     <option value="dots">Dots</option>
                     <option value="lines">Lines</option>
                     <option value="dashed">Dashed Lines</option>
+                    <option value="gravity-stack">Gravity Stack / Fill</option>
                   </select>
                 </label>
-                {(dotsGenerator === "classic" || l.dotsMode !== "dots") && (
+                {dotsGenerator !== "gravity-stack" && (dotsGenerator === "classic" || l.dotsMode !== "dots") && (
                   <>
                 <label className="block">
                   <div className="mb-1 label">Layout</div>
@@ -516,7 +583,6 @@ export default function Inspector(p: Props) {
                     <option value="vstrips">Vertical Strips</option>
                     <option value="diag">Diagonal Strips</option>
                     <option value="border">Border / Frame</option>
-                    <option value="scatter">Random Scatter</option>
                   </select>
                 </label>
                 {slider("Count", l.dotsCount ?? 8, 1, 64, 1, (v) => p.onLayer({ dotsCount: v }))}
@@ -578,7 +644,7 @@ export default function Inspector(p: Props) {
             )}
 
             {l.effect === "sparkle" && (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Twinkle / sparkle control</div>
                 {slider("Lit pixels", l.sparkleDensity ?? 6, 0, 40, 1, (v) => p.onLayer({ sparkleDensity: v }), "%")}
                 {slider("Flicker rate", l.sparkleRate ?? 9, 1, 30, 1, (v) => p.onLayer({ sparkleRate: v }), " /s")}
@@ -587,16 +653,25 @@ export default function Inspector(p: Props) {
             )}
 
             {(l.effect === "text" || l.kind === "text") && (
-              <section className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[.03] p-2.5">
+              <section className={card}>
                 <div className="label">Text layer</div>
-                <label className="block">
-                  <div className="mb-1 label">Content</div>
-                  <input className="field" value={l.textContent ?? l.text ?? ""} onChange={(e) => p.onLayer({ textContent: e.target.value, text: e.target.value })} />
-                </label>
-                <div className="flex flex-wrap gap-1">
-                  {["★","♥","ॐ","✦","❖","☀","☾","शुभ विवाह","स्वागतम","जय श्री राम"].map((s) => (
-                    <button key={s} className="chip" onClick={() => p.onLayer({ textContent: `${l.textContent ?? l.text ?? ""}${s}`, text: `${l.textContent ?? l.text ?? ""}${s}` })}>{s}</button>
-                  ))}
+                <div className="flex items-start gap-2">
+                  <label className="min-w-0 flex-1">
+                    <div className="mb-1 label">Content</div>
+                    <input
+                      ref={textInputRef}
+                      className="field min-h-[44px] md:min-h-0"
+                      value={l.textContent ?? l.text ?? ""}
+                      onChange={(e) => p.onLayer({ textContent: e.target.value, text: e.target.value })}
+                    />
+                  </label>
+                  <div className="pt-4">
+                    <EmojiPicker
+                      value={l.textContent ?? l.text ?? ""}
+                      onChange={(value) => p.onLayer({ textContent: value, text: value })}
+                      inputRef={textInputRef}
+                    />
+                  </div>
                 </div>
                 <label className="block">
                   <div className="mb-1 label">Script filter</div>
@@ -629,6 +704,25 @@ export default function Inspector(p: Props) {
                 {slider("Spacing", l.textSpacing ?? 1, 0, 5, 0.1, (v) => p.onLayer({ textSpacing: v }), "×")}
                 {slider("X offset", l.textX ?? 0, -10, 10, 1, (v) => p.onLayer({ textX: v }), "px")}
                 {slider("Y offset", l.textY ?? 0, -10, 10, 1, (v) => p.onLayer({ textY: v }), "px")}
+                {(() => {
+                  const max = Math.max(48, p.project.hardware.rows);
+                  const val = l.textYOffset ?? l.yOffset ?? 0;
+                  const setY = (v: number) => p.onLayer({ textYOffset: v, yOffset: v });
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="label">Vertical Position (Y)</span>
+                        <span className="font-mono text-[10px] tabular-nums text-zinc-400">{val >= 0 ? `+${val}` : val} px</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" className="btn h-8 px-2" title="Up 1px" onClick={() => setY(val - 1)}>↑</button>
+                        <input type="range" min={-max} max={max} step={1} className="min-w-0 flex-1" value={val} onChange={(e) => setY(+e.target.value)} />
+                        <button type="button" className="btn h-8 px-2" title="Down 1px" onClick={() => setY(val + 1)}>↓</button>
+                        <button type="button" className="btn h-8 px-2" title="Center" onClick={() => setY(0)}>0</button>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <label className="block">
                   <div className="mb-1 label">Direction</div>
                   <select className="field" value={l.textDirection ?? "left"} onChange={(e) => p.onLayer({ textDirection: e.target.value as any })}>
@@ -657,11 +751,15 @@ export default function Inspector(p: Props) {
                   <input type="checkbox" checked={l.textShadow ?? false} onChange={(e) => p.onLayer({ textShadow: e.target.checked })} />
                   Drop shadow
                 </label>
+                <Text3DControls
+                  config={normalizeText3D(l.text3d)}
+                  onChange={(next) => p.onLayer({ text3d: normalizeText3D({ ...normalizeText3D(l.text3d), ...next }) })}
+                />
               </section>
             )}
 
             {l.effect !== "text" && l.effect !== "dots-lines" && (
-            <section className="space-y-3">
+            <section className={card}>
               <div className="label">Color engine</div>
               <div className="flex flex-wrap items-center gap-1.5">
                 {l.gradient.map((c, i) => (
@@ -681,23 +779,27 @@ export default function Inspector(p: Props) {
             </section>
             )}
 
-            <section className="space-y-3">
-              <div className="label">Compositing</div>
-              <label className="block">
-                <div className="mb-1 label">Blend mode</div>
-                <select className="field" value={l.blend} onChange={(e) => p.onLayer({ blend: e.target.value as BlendMode })}>
-                  {["normal", "add", "multiply", "screen", "overlay", "difference", "max"].map((b) => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </label>
-              <label className="block">
-                <div className="mb-1 label">Symmetry / mirror</div>
-                <select className="field" value={l.symmetry} onChange={(e) => p.onLayer({ symmetry: e.target.value as Symmetry })}>
-                  {["none", "horizontal", "vertical", "quad"].map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </label>
-            </section>
+            <details className={card}>
+              <summary className="flex cursor-pointer list-none items-center justify-between text-[11px] font-semibold text-slate-300">
+                Blend Mode <Icon name="chevron" size={14} />
+              </summary>
+              <div className="space-y-3 pt-1">
+                <label className="block">
+                  <div className="mb-1 label">Blend mode</div>
+                  <select className="field" value={l.blend} onChange={(e) => p.onLayer({ blend: e.target.value as BlendMode })}>
+                    {["normal", "add", "multiply", "screen", "overlay", "difference", "max"].map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">Symmetry / mirror</div>
+                  <select className="field" value={l.symmetry} onChange={(e) => p.onLayer({ symmetry: e.target.value as Symmetry })}>
+                    {["none", "horizontal", "vertical", "quad"].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </label>
+              </div>
+            </details>
 
-            <section className="space-y-3">
+            <section className={card}>
               <div className="label">Post FX</div>
               {slider("Trails / afterglow", l.trails, 0, 0.95, 0.01, (v) => p.onLayer({ trails: v }))}
               {slider("Strobe", l.strobeHz, 0, 20, 0.5, (v) => p.onLayer({ strobeHz: v }), " Hz")}
@@ -737,81 +839,69 @@ export default function Inspector(p: Props) {
           </>
         )}
 
-        <section className="rounded-lg border border-amber-400/20 bg-amber-400/[.03] p-2.5">
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="label">Per-line animation · {lines.length}</span>
-            <button className="chip" onClick={() => p.onLineAnimations((prev) => [...prev, makeLineAnimation(prev.length + 1)])}>
-              + New line
-            </button>
-          </div>
-          <p className="mb-2 text-[9px] leading-snug text-zinc-600">
-            Assign an effect to one drop/row with its own colour. Line animations replace other layers on those lines, so no other colour bleeds in.
-          </p>
-          {lines.map((la) => (
-            <details key={la.id} className="mb-1.5 rounded border border-zinc-800 bg-zinc-900/60">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 text-[10px]">
-                <input type="checkbox" checked={la.enabled} onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => patchLine(la.id, { enabled: e.target.checked })} />
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: la.color }} />
-                <span className="min-w-0 flex-1 truncate text-zinc-200">{la.name}</span>
-                <span className="shrink-0 font-mono text-[9px] text-zinc-500">
-                  {la.axis === "column" ? "Drop" : "Row"} {la.from}{la.from !== la.to ? `–${la.to}` : ""}
-                </span>
-                <button className="shrink-0 text-zinc-600 hover:text-red-400" onClick={(e) => {
-                  e.preventDefault(); e.stopPropagation();
-                  p.onLineAnimations((prev) => prev.filter((x) => x.id !== la.id));
-                }}>✕</button>
-              </summary>
-              <div className="space-y-2 border-t border-zinc-800 p-2">
-                <input className="field" value={la.name} onChange={(e) => patchLine(la.id, { name: e.target.value })} />
-                <div className="grid grid-cols-2 gap-2">
-                  <label>
-                    <div className="mb-1 label">Axis</div>
-                    <select className="field" value={la.axis} onChange={(e) => patchLine(la.id, { axis: e.target.value as "column" | "row" })}>
-                      <option value="column">Drop / column</option>
-                      <option value="row">Row</option>
-                    </select>
-                  </label>
-                  <label>
-                    <div className="mb-1 label">Effect</div>
-                    <select className="field" value={la.effect} onChange={(e) => patchLine(la.id, { effect: e.target.value as EffectId })}>
-                      {EFFECT_OPTIONS.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
-                  </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={la.color} onChange={(e) => patchLine(la.id, { color: e.target.value })} />
-                  <label className="flex-1">
-                    <div className="mb-1 label">From line</div>
-                    <input type="number" min="1" className="field font-mono" value={la.from}
-                      onChange={(e) => patchLine(la.id, { from: Math.max(1, +e.target.value || 1) })} />
-                  </label>
-                  <label className="flex-1">
-                    <div className="mb-1 label">To line</div>
-                    <input type="number" min="1" className="field font-mono" value={la.to}
-                      onChange={(e) => patchLine(la.id, { to: Math.max(1, +e.target.value || 1) })} />
-                  </label>
-                </div>
-                {slider("Brightness", la.brightness, 0, 100, 1, (v) => patchLine(la.id, { brightness: v }), "%")}
-                {slider("Speed", la.speed < 0.2 ? 0.2 : la.speed, 0.2, 3, 0.1, (v) => patchLine(la.id, { speed: Math.max(0.2, v) }), "×")}
-                {slider("Density", la.density, 0.1, 5, 0.1, (v) => patchLine(la.id, { density: Math.max(0.1, Math.min(5, v)) }), "×")}
-                {slider("Direction / Angle", la.angle, 0, 360, 1, (v) => patchLine(la.id, { angle: v }), "°")}
-                {angleChips(la.angle, (v) => patchLine(la.id, { angle: v }))}
-                {la.effect === "sparkle" && (
-                  <>
-                    {slider("Lit pixels", la.sparkleDensity ?? 6, 0, 40, 1, (v) => patchLine(la.id, { sparkleDensity: v }), "%")}
-                    {slider("Flicker rate", la.sparkleRate ?? 9, 1, 30, 1, (v) => patchLine(la.id, { sparkleRate: v }), " /s")}
-                  </>
-                )}
-              </div>
-            </details>
-          ))}
-        </section>
+        {l && (
+          <details className={card}>
+            <summary className="flex cursor-pointer list-none items-center justify-between text-[11px] font-semibold text-slate-300">
+              Random Scatter <Icon name="chevron" size={14} />
+            </summary>
+            <div className="pt-1">
+              <RandomScatterPanel
+                layer={l}
+                onLayer={p.onLayer}
+                width={p.project.hardware.cols}
+                height={p.project.hardware.rows}
+              />
+            </div>
+          </details>
+        )}
 
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+        <section className={card}>
           <div className="label mb-2">Master output</div>
           {slider("Hardware gamma", p.project.gamma, 1, 2.8, 0.1, p.onGamma)}
           <p className="mt-1 text-[9px] leading-snug text-zinc-600">Match the curve to your WS2811 / UCS1903 drivers so preview matches the physical strip.</p>
+
+          <label className="mt-3 flex items-center justify-between">
+            <span className="label">Sparkle Overlay</span>
+            <input type="checkbox" checked={p.project.sparkleOverlay ?? false}
+              onChange={(e) => p.onProject({ sparkleOverlay: e.target.checked })} />
+          </label>
+          {p.project.sparkleOverlay && (
+            <div className="mt-2 space-y-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+              <select className="field" value={p.project.sparkleOverlayColorMode ?? "solid"}
+                onChange={(e) => p.onProject({ sparkleOverlayColorMode: e.target.value as NonNullable<Project["sparkleOverlayColorMode"]> })}>
+                <option value="solid">Solid Color</option>
+                <option value="random">Random High-Contrast</option>
+                <option value="palette">Random From Palette</option>
+              </select>
+              {(p.project.sparkleOverlayColorMode ?? "solid") === "solid" && (
+                <div className="flex flex-wrap items-center gap-1">
+                  {["#ffffff", "#ff0000", "#ffd700", "#00ffff", "#00ff00"].map((color) => (
+                    <button key={color} aria-label={`Sparkle ${color}`} title={color}
+                      onClick={() => p.onProject({ sparkleOverlayColor: color })}
+                      className={`h-6 w-6 rounded border ${p.project.sparkleOverlayColor === color ? "border-zinc-100" : "border-zinc-700"}`}
+                      style={{ background: color }} />
+                  ))}
+                  <input type="color" aria-label="Custom sparkle color" className="h-6 w-7 cursor-pointer bg-transparent"
+                    value={p.project.sparkleOverlayColor ?? "#ffffff"}
+                    onChange={(e) => p.onProject({ sparkleOverlayColor: e.target.value })} />
+                </div>
+              )}
+              {(p.project.sparkleOverlayColorMode ?? "solid") === "palette" && (
+                <div className="flex flex-wrap gap-1">
+                  {(p.project.sparkleOverlayPalette ?? []).map((color, i) => (
+                    <input key={i} type="color" aria-label={`Sparkle palette ${i + 1}`} value={color}
+                      onChange={(e) => {
+                        const next = [...(p.project.sparkleOverlayPalette ?? [])];
+                        next[i] = e.target.value;
+                        p.onProject({ sparkleOverlayPalette: next });
+                      }} className="h-6 w-7 cursor-pointer rounded border border-zinc-700 bg-transparent p-0" />
+                  ))}
+                </div>
+              )}
+              {slider("Density", p.project.sparkleOverlayDensity ?? 6, 1, 25, 1, (v) => p.onProject({ sparkleOverlayDensity: v }), "%")}
+              {slider("Twinkle speed", p.project.sparkleOverlaySpeed ?? 4, 1, 10, 1, (v) => p.onProject({ sparkleOverlaySpeed: v }))}
+            </div>
+          )}
           <button className={`btn mt-2 w-full ${micOn ? "text-teal-300" : ""}`} onClick={toggleMic} disabled={micBusy}>
             <Icon name="rec" size={11} />{micBusy ? "Opening microphone…" : micOn ? "Microphone live" : "Enable microphone"}
           </button>

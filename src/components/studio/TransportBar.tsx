@@ -59,7 +59,7 @@ export default function TransportBar(p: Props) {
   const frame = Math.min(Math.round(p.time * p.fps), Math.round(p.duration * p.fps));
   const total = Math.round(p.duration * p.fps);
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/60 px-3">
+    <div className="flex h-11 shrink-0 items-center gap-2 border-t border-white/10 bg-[#111827] px-3">
       <button className="btn btn-icon" title="Previous frame" onClick={p.onPrev}><Icon name="prev" /></button>
       <button className={`btn btn-icon ${p.playing ? "text-teal-300" : "btn-primary"} ${!p.canPlay ? "opacity-40 cursor-not-allowed" : ""}`} title={p.canPlay ? "Play / Pause (Space)" : "Add a layer first to play"} onClick={p.canPlay ? p.onPlay : undefined} disabled={!p.canPlay}>
         <Icon name={p.playing ? "pause" : "play"} />
@@ -73,7 +73,7 @@ export default function TransportBar(p: Props) {
       <div className="font-mono text-[10px] tabular-nums text-zinc-500">
         Frame {String(frame).padStart(4, "0")} / {String(total).padStart(4, "0")} · {p.fps} fps
       </div>
-      <div className="ml-auto hidden items-center gap-2 md:flex">
+      <div className="ml-auto flex items-center gap-2">
         <button className="btn btn-icon" onClick={p.onUndo} disabled={!p.canUndo} title="Undo (Ctrl+Z)"><Icon name="undo" /></button>
         <button className="btn btn-icon" onClick={p.onRedo} disabled={!p.canRedo} title="Redo (Ctrl+Y)"><Icon name="redo" /></button>
         <div className="relative" ref={ref}>
@@ -82,7 +82,7 @@ export default function TransportBar(p: Props) {
             <span className="ml-1 rounded bg-zinc-700 px-1.5 py-0.5 text-[9px]">{p.entries.length}</span>
           </button>
           {open && (
-            <div id="recent-changes" className="absolute bottom-full right-0 mb-2 z-40 max-h-80 w-72 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur">
+            <div id="recent-changes" className="absolute bottom-full right-0 mb-2 z-40 max-h-80 w-72 overflow-y-auto rounded-lg border border-white/10 bg-[#111827] p-2 shadow-2xl">
               <div className="space-y-1">
                 {p.entries.slice().reverse().map((e, i) => {
                   const idx = p.entries.length - 1 - i;
@@ -107,7 +107,6 @@ export default function TransportBar(p: Props) {
           )}
         </div>
       </div>
-      <div className="ml-auto text-[10px] text-zinc-600 md:hidden">Space play · ← → frame</div>
     </div>
   );
 }

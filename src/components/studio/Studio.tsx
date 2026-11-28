@@ -1,29 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildWiringMap } from "@/engine/wiringMapper";
 import { getMathEffect } from "@/engine/mathCatalog";
 import { type Preset } from "@/engine/presetLibrary";
 import { deleteSavedProject, loadProject, openSavedProject, readAutosave, saveProjectRecord } from "@/lib/projectStore";
-import { deleteCurrentProject } from "@/lib/db";
 import { useProjectHistory } from "@/lib/history";
 import { clampLayerTiming, defaultProject, EFFECTS, effectiveDuration, makeLayer, normalizeProject, type EffectId, type Layer, type Project } from "@/types/project";
 import { swfFileFor, isOnline } from "@/lib/swfEffects";
 import type { HardwareConfig } from "@/types/hardware";
 import { DEFAULT_HARDWARE } from "@/types/hardware";
 import CanvasViewport from "./CanvasViewport";
+import Inspector from "./Inspector";
 import ExportModal from "./ExportModal";
 
 import HardwareModal from "./HardwareModal";
-import Inspector from "./Inspector";
 import ProjectLauncherModal, { type NewProjectConfig } from "./ProjectLauncherModal";
 import { AnimatePresence, motion } from "framer-motion";
 import type { ExportFormat } from "@/engine/exporters";
 import { importGif, importImageFile, importSfx, importSwf, importVideo, type ImportedMedia } from "@/engine/mediaImport";
 import { importAviUrl } from "@/lib/aviImporter";
-import LeftDock from "./LeftDock";
 import OverlaySidebar, { type SidebarTabId } from "./shell/OverlaySidebar";
-import { migrateLocalStorageProjects } from "@/lib/db";import ResizeHandle from "./ResizeHandle";
+import TextPanel from "./panels/TextPanel";
+import DotsLinesPanel from "./panels/DotsLinesPanel";
+import { migrateLocalStorageProjects } from "@/lib/db";
+import ResizeHandle from "./ResizeHandle";
+import MobileStudio from "./MobileStudio";
 import Timeline from "./Timeline";
 import TopBar from "./TopBar";
 import TransportBar from "./TransportBar";
@@ -57,19 +58,31 @@ function readLayout(): Layout {
   } catch { return defaultLayout(); }
 }
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return mobile;
+}
+
 export default function Studio({ onHome }: { onHome?: () => void }) {
   const initial = useMemo(() => defaultProject(), []);
   const { project, commit, reset, undo, redo, jumpTo, clear, canUndo, canRedo, entries, currentIndex } = useProjectHistory(initial);
   const { settings } = useStudioSettings();
+  const isMobile = useIsMobile();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [textModalOpen, setTextModalOpen] = useState(false);
+  const [dotsModalOpen, setDotsModalOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTabId>("layouts");
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
+  const [sidebarTab, setSidebarTab] = useState<SidebarTabId>("layers");
   const [selectedId, setSelectedId] = useState<string | null>(initial.layers[0]?.id ?? null);
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
-  const [split, setSplit] = useState(false);
   const [uiTime, setUiTime] = useState(0);
   const uiTimeRef = useRef(0);
   uiTimeRef.current = uiTime;
@@ -87,11 +100,11 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
   const [saveState, setSaveState] = useState<"loading" | "saved" | "saving" | "error">("loading");
   const MIN_DURATION = 1;
   const importRef = useRef<HTMLInputElement>(null);
+  const mediaImportRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
   const choiceRef = useRef(false);
   const bootRef = useRef(false);
 
-  const map = useMemo(() => buildWiringMap(project.hardware), [project.hardware]);
   const selected = project.layers.find((l) => l.id === selectedId) ?? null;
   const textFontKey = project.layers
     .filter((l) => l.effect === "text" || l.kind === "text")
@@ -435,6 +448,17 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     });
   }, [selected, patchLayer, uiTime]);
 
+  const togglePlay = useCallback(() => {
+    setPlaying((v) => project.layers.length > 0 ? !v : false);
+  }, [project.layers.length]);
+  const togglePitch = useCallback(() => {
+    commit((p) => ({ ...p, hardware: { ...p.hardware, showPitch: !p.hardware.showPitch } }), "hardware:pitch");
+  }, [commit]);
+  const changeMatrix = useCallback((cols: number, rows: number) => {
+    commit((p) => ({ ...p, hardware: { ...p.hardware, cols, rows } }), "hardware:matrix");
+  }, [commit]);
+  const pickVideo = useCallback(() => mediaImportRef.current?.click(), []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -492,25 +516,16 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     doSeek(0);
   };
 
-  const renameProject = () => {
-    setRenameValue(project.name);
-    setRenameOpen(true);
-  };
-  const commitRename = () => {
-    const trimmed = renameValue.trim();
-    if (trimmed && trimmed !== project.name) commit((p) => ({ ...p, name: trimmed }), "project:rename");
-    setRenameOpen(false);
+  const saveShow = () => {
+    saveProjectRecord(project).catch(() => {});
+    setSaveState("saved");
   };
 
-  const deleteCurrentProjectRecord = async () => {
-    if (!window.confirm(`Delete "${project.name}" from this device? This cannot be undone.`)) return;
-    await Promise.all([deleteSavedProject(project.id), deleteCurrentProject()]).catch(() => {});
-    choiceRef.current = false;
-    try { sessionStorage.removeItem(LAUNCHER_SEEN_KEY); } catch {}
-    reset(defaultProject());
+  const resetCanvas = () => {
+    if (!window.confirm("Clear every layer from the canvas? This cannot be undone.")) return;
+    commit((p) => ({ ...p, layers: [] }), "project:reset-canvas");
     setSelectedId(null);
     doSeek(0);
-    setLauncherOpen(true);
   };
 
   const adopt = (next: Project) => {
@@ -542,7 +557,6 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
       duration: config.duration,
       hardware: config.hardware,
       layers: [],
-      lineAnimations: [],
     };
     choiceRef.current = true;
     reset(next);
@@ -552,17 +566,80 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
     await saveProjectRecord(next).catch(() => {});
   };
 
-  return (
-    <main className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 select-none">
+  const patchSelected = useCallback((patch: Partial<Layer>) => {
+    if (selected) patchLayer(selected.id, patch);
+  }, [selected, patchLayer]);
+  const setGamma = useCallback((gamma: number) => commit((p) => ({ ...p, gamma }), "master:gamma"), [commit]);
+  const patchProject = useCallback((patch: Partial<Project>) => commit((p) => ({ ...p, ...patch }), "master:sparkle"), [commit]);
+
+  const placeEmojiActive = Boolean(
+    selected?.effect === "character-video" &&
+    selected.characterSourceType === "emoji" &&
+    selected.emojiCharacter?.clickCanvasToPlace
+  );
+  const onPlaceEmoji = (x: number, y: number) => {
+    if (!selected || selected.effect !== "character-video" || selected.characterSourceType !== "emoji" || !selected.emojiCharacter) return;
+    const cfg = selected.emojiCharacter;
+    const itemId = cfg.selectedItemId;
+    commit((p) => ({
+      ...p,
+      layers: p.layers.map((l) => l.id === selected.id ? {
+        ...l,
+        emojiCharacter: {
+          ...cfg,
+          items: cfg.items.map((it) => it.id === itemId ? { ...it, x, y } : it),
+        },
+      } : l),
+    }), "emoji:place");
+  };
+
+  const canvasProps = {
+    project,
+    playing,
+    loop,
+    loopStart: selected?.startTime ?? 0,
+    loopEnd: selected ? selected.startTime + selected.duration : project.duration,
+    seek,
+    time: uiTime,
+    duration: effectiveDuration(project),
+    fps: project.fps,
+    onTime: setUiTime,
+    onSeek: doSeek,
+    onEnd: () => setPlaying(false),
+    onDeselect: () => setSelectedId(null),
+    onPlayPause: togglePlay,
+    onTogglePitch: togglePitch,
+    placeEmojiActive,
+    onPlaceEmoji,
+    paused: launcherOpen || modal.open || exportModal.open || libraryOpen,
+    fontsReady,
+  };
+
+  const shell = isMobile ? (
+    <MobileStudio
+      {...canvasProps}
+      selected={selected}
+      onSelectLayer={setSelectedId}
+      onLayer={patchSelected}
+      onAction={doAction}
+      onGamma={setGamma}
+      onProject={patchProject}
+      onAddKeyframe={addKeyframe}
+      onCommit={commit}
+      onMatrixChange={changeMatrix}
+      onAdd={addLayer}
+      onAddPreset={addPreset}
+      onAddVideo={pickVideo}
+      onImportMedia={importMedia}
+      onLibrary={() => setLibraryOpen(true)}
+      onExport={() => setExportModal({ open: true, format: "avi" })}
+    />
+  ) : (
+    <main className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-[#0B0F17] text-zinc-100 select-none">
       <TopBar
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        onExport={() => setExportModal({ open: true, format: "avi" })}
-        onLibrary={() => setLibraryOpen(true)}
       />
-      <input ref={importRef} type="file" accept="application/json,.json" hidden
-        onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
-
       <div className="flex min-h-0 flex-1">
         <OverlaySidebar
           open={sidebarOpen}
@@ -570,39 +647,40 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
           activeTab={sidebarTab}
           onActiveTabChange={setSidebarTab}
           project={project}
+          selected={selected}
+          time={uiTime}
+          modalOpen={modal.open || launcherOpen || exportModal.open || libraryOpen || settingsOpen}
           onProjects={() => setLauncherOpen(true)}
           onHardware={() => setModal({ open: true, isNew: false })}
-          onRename={renameProject}
-          onDeleteProject={deleteCurrentProjectRecord}
+          onNewShow={() => setModal({ open: true, isNew: true })}
+          onSaveShow={saveShow}
+          onResetCanvas={resetCanvas}
           onSaveJson={saveJson}
           onLoadJson={() => importRef.current?.click()}
           onExportAvi={() => setExportModal({ open: true, format: "avi" })}
+          onLibrary={() => setLibraryOpen(true)}
           onFps={(fps) => commit((p) => ({ ...p, fps }))}
           onBrightness={(masterBrightness) => commit((p) => ({ ...p, masterBrightness }), "master:brightness")}
           onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo}
           onOpenSettings={() => setSettingsOpen(true)}
-          onAdd={addLayer} onAddPreset={addPreset} onImportMedia={importMedia}
-          onApplyHardware={(hardware) => commit((pp) => ({ ...pp, hardware }), "hardware:layout")}
+          onOpenTextSettings={() => setTextModalOpen(true)}
+          onOpenDotsSettings={() => setDotsModalOpen(true)}
+          onAdd={addLayer} onAddVideo={pickVideo} onAddPreset={addPreset} onImportMedia={importMedia}
           onCommit={commit}
-          map={map}
+          onMatrixChange={changeMatrix}
+          onSelectLayer={setSelectedId}
+          onLayer={patchSelected}
+          onAction={doAction}
+          onGamma={setGamma}
+          onProject={patchProject}
+          onAddKeyframe={addKeyframe}
         />
         <section className="flex min-w-0 min-h-0 flex-1 flex-col">
-          <CanvasViewport
-            project={project} map={map} playing={playing} loop={loop} seek={seek}
-            loopStart={selected?.startTime ?? 0}
-            loopEnd={selected ? selected.startTime + selected.duration : project.duration}
-            onTime={setUiTime} onEnd={() => setPlaying(false)} onDeselect={() => setSelectedId(null)}
-            onToggleWiring={() => commit((p) => ({ ...p, hardware: { ...p.hardware, showWiring: !p.hardware.showWiring } }))}
-            onToggleIndices={() => commit((p) => ({ ...p, hardware: { ...p.hardware, showIndices: !p.hardware.showIndices } }))}
-            onTogglePitch={() => commit((p) => ({ ...p, hardware: { ...p.hardware, showPitch: !p.hardware.showPitch } }))}
-            split={split} onSplit={() => setSplit((v) => !v)}
-            paused={launcherOpen}
-            fontsReady={fontsReady}
-          />
+          <CanvasViewport {...canvasProps} />
           <TransportBar
             playing={playing} canPlay={project.layers.length > 0} loop={loop} time={uiTime}
             duration={project.duration} fps={project.fps}
-            onPlay={() => setPlaying((v) => project.layers.length > 0 ? !v : false)} onStop={() => { setPlaying(false); doSeek(0); }}
+            onPlay={togglePlay} onStop={() => { setPlaying(false); doSeek(0); }}
             onPrev={() => doSeek(uiTime - 1 / project.fps)} onNext={() => doSeek(uiTime + 1 / project.fps)}
             onLoop={() => setLoop((v) => !v)}
             onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo}
@@ -614,10 +692,8 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
         <Inspector
           width={layout.right}
           project={project} layer={selected} time={uiTime}
-          onLayer={(patch) => selected && patchLayer(selected.id, patch)}
-          onAction={doAction} onAddKeyframe={addKeyframe}
-          onLineAnimations={(updater) => commit((p) => ({ ...p, lineAnimations: updater(p.lineAnimations ?? []) }), "lines")}
-          onGamma={(gamma) => commit((p) => ({ ...p, gamma }), "master:gamma")}
+          onLayer={patchSelected} onAction={doAction} onAddKeyframe={addKeyframe}
+          onGamma={setGamma} onProject={patchProject}
         />
       </div>
 
@@ -632,7 +708,20 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
         height={layout.timeline} collapsed={timelineCollapsed}
         onToggleCollapse={() => setTimelineCollapsed((v) => !v)}
       />
+    </main>
+  );
 
+  return (
+    <>
+      <input ref={importRef} type="file" accept="application/json,.json" hidden
+        onChange={(e) => e.target.files?.[0] && loadJson(e.target.files[0])} />
+      <input ref={mediaImportRef} type="file" accept="image/*,video/*,.gif,.sfx,.swf,.avi" hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void importMedia(file, () => {});
+          e.target.value = "";
+        }} />
+      {shell}
       <div className="sr-only" aria-live="polite">{saveState}</div>
       {modal.open && (
         <HardwareModal
@@ -640,30 +729,9 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
           onClose={() => setModal({ open: false, isNew: false })} onApply={applyHardware}
         />
       )}
-      {renameOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
-            <label className="label mb-2 block">Project name</label>
-            <input
-              className="field"
-              value={renameValue}
-              autoFocus
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitRename();
-                if (e.key === "Escape") setRenameOpen(false);
-              }}
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <button className="btn" onClick={() => setRenameOpen(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={commitRename}>Rename</button>
-            </div>
-          </div>
-        </div>
-      )}
       <AnimatePresence>
         {exportModal.open && (
-          <MotionExport key="export" open={exportModal.open} project={project} map={map} initialFormat={exportModal.format}
+          <MotionExport key="export" open={exportModal.open} project={project} initialFormat={exportModal.format}
             fontsReady={fontsReady}
             onClose={() => setExportModal((s) => ({ ...s, open: false }))} />
         )}
@@ -673,11 +741,11 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
           <motion.div className="fixed inset-0 z-40 flex justify-end bg-black/60"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setLibraryOpen(false)}>
-            <motion.aside className="flex h-full w-[min(620px,100vw)] flex-col border-l border-zinc-800 bg-zinc-950 p-4"
+            <motion.aside className="flex h-full w-[min(620px,100vw)] flex-col border-l border-white/10 bg-[#0B0F17] p-4"
               initial={{ x: 40 }} animate={{ x: 0 }} exit={{ x: 40 }}
               onClick={(e) => e.stopPropagation()}>
               <div className="mb-3 flex items-center justify-between">
-                <span className="label">Sanity animation library</span>
+                <span className="label">Cloud Library</span>
                 <button className="btn btn-icon" onClick={() => setLibraryOpen(false)} aria-label="Close library">✕</button>
               </div>
               <AnimationLibrary compact onLoad={loadCloudAsset} />
@@ -695,8 +763,33 @@ export default function Studio({ onHome }: { onHome?: () => void }) {
         onCreate={createProject}
         onLoadJson={() => importRef.current?.click()}
       />
-
       <StudioSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onOpenFeedback={() => { setSettingsOpen(false); window.open("https://www.instagram.com/jambh_elecricals/", "_blank", "noopener,noreferrer"); }} />
-    </main>
+      {textModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setTextModalOpen(false)}>
+          <div className="flex h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-white/10 bg-[#0B0F17] p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-semibold text-zinc-100">Text Settings</span>
+              <button className="btn btn-icon" onClick={() => setTextModalOpen(false)} aria-label="Close">✕</button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <TextPanel project={project} onCommit={commit} onAddText={() => addLayer("text", "Text Layer")} />
+            </div>
+          </div>
+        </div>
+      )}
+      {dotsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setDotsModalOpen(false)}>
+          <div className="flex h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-white/10 bg-[#0B0F17] p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-semibold text-zinc-100">Dots Settings</span>
+              <button className="btn btn-icon" onClick={() => setDotsModalOpen(false)} aria-label="Close">✕</button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <DotsLinesPanel project={project} onCommit={commit} onAdd={addLayer} />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

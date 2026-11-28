@@ -3,23 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import { runExport, type ExportFormat } from "@/engine/exporters";
 import { renderFrame } from "@/engine/compositor";
-import type { WiringMap } from "@/engine/wiringMapper";
 import type { Project } from "@/types/project";
 
 interface Props {
   open: boolean;
   project: Project;
-  map: WiringMap;
   initialFormat: ExportFormat;
   fontsReady?: boolean;
   onClose: () => void;
 }
 
 const FORMATS: { id: ExportFormat; label: string; detail: string; warn?: string }[] = [
-  { id: "zip", label: "Frame ZIP · PNG sequence", detail: "Every frame as PNG, plus project.json, manifest.json and wiring.csv." },
+  { id: "zip", label: "Frame ZIP · PNG sequence", detail: "Every frame as PNG, plus project.json and manifest.json." },
   { id: "avi", label: "Video · AVI (MJPEG)", detail: "Motion-JPEG preview for VLC and Windows Media Player." },
   { id: "avi-raw", label: "LEDEdit Import · AVI (uncompressed 24-bit)", detail: "Uncompressed BI_RGB BGR24 at matrix size — opens in every LEDEdit via File → Open (.avi).", warn: "Large files (W×H×3 bytes per frame). Use for LEDEdit interchange, not SD cards." },
-  { id: "fseq", label: "Falcon · FSEQ v2 (uncompressed)", detail: "One channel byte per LED channel in physical wiring order, for Falcon-style players." },
+  { id: "fseq", label: "Falcon · FSEQ v2 (uncompressed)", detail: "One channel byte per LED channel in matrix raster order, for Falcon-style players." },
   { id: "gif", label: "Video · animated GIF", detail: "Looping GIF at the chosen pixel size; plays anywhere a GIF does." },
   {
     id: "swf",
@@ -27,7 +25,7 @@ const FORMATS: { id: ExportFormat; label: string; detail: string; warn?: string 
     detail: "One bitmap per animation frame; re-imports into this studio.",
     warn: "A browser needs a Flash emulator such as Ruffle to play a downloaded SWF.",
   },
-  { id: "bin", label: "Raw frames · .bin", detail: "RGB frames in physical wiring order and colour order, for custom drivers." },
+  { id: "bin", label: "Raw frames · .bin", detail: "RGB frames in matrix raster order and colour order, for custom drivers." },
 ];
 
 const SCALES = [1, 2, 4, 8, 12, 16];
@@ -60,7 +58,7 @@ export default function ExportModal(p: Props) {
   useEffect(() => {
     if (!p.open || p.fontsReady === false) return;
     const { cols, rows } = p.project.hardware;
-    const frame = renderFrame(p.project, 0, p.map, 0.5);
+    const frame = renderFrame(p.project, 0, 0.5);
     const canvas = previewRef.current;
     if (!canvas) return;
     canvas.width = cols;
@@ -76,7 +74,7 @@ export default function ExportModal(p: Props) {
     ctx.putImageData(img, 0, 0);
     const hex = Array.from(frame.slice(0, 48)).map((b) => b.toString(16).padStart(2, "0")).join(" ");
     setPreviewHex(hex);
-  }, [p.open, p.project, p.map, format, p.fontsReady]);
+  }, [p.open, p.project, format, p.fontsReady]);
 
   if (!p.open) return null;
 
@@ -91,7 +89,7 @@ export default function ExportModal(p: Props) {
     setError("");
     setProgress(0);
     try {
-      await runExport(p.project, p.map, format, {
+      await runExport(p.project, format, {
         scale,
         onProgress: (d, t, ph) => {
           setProgress(t ? d / t : 0);
@@ -112,7 +110,7 @@ export default function ExportModal(p: Props) {
       <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
           <div>
-            <div className="text-[12px] font-semibold text-zinc-100">Export show</div>
+            <div className="text-[12px] font-semibold text-zinc-100">Export AVI</div>
             <div className="text-[10px] text-zinc-500">
               {p.project.hardware.cols} × {p.project.hardware.rows} · {frames} frames · {p.project.fps} fps
             </div>

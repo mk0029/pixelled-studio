@@ -1,24 +1,19 @@
-import type { WiringMap } from "@/engine/wiringMapper";
-
 interface SimulatorOptions {
   cols: number;
   rows: number;
-  map: WiringMap;
   ox: number;
   oy: number;
   cell: number;
-  wiring?: boolean;
 }
 
-/** Renderer ported from ledSimulator.js: halo, dark off LEDs, specular dot, wire path. */
+/** Renderer ported from ledSimulator.js: halo, dark off LEDs, specular dot. */
 export function drawSimulatorFrame(
   ctx: CanvasRenderingContext2D,
   frame: Uint8ClampedArray,
-  { cols, rows, map, ox, oy, cell, wiring }: SimulatorOptions,
+  { cols, rows, ox, oy, cell }: SimulatorOptions,
 ) {
   const radius = Math.max(2, cell * 0.31);
   const halo = radius >= 4; // 100×100 grids skip per-LED gradients to stay smooth
-  if (wiring) drawSimulatorWirePath(ctx, map, ox, oy, cell);
 
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -45,18 +40,4 @@ export function drawSimulatorFrame(
       ctx.fill();
     }
   }
-}
-
-function drawSimulatorWirePath(ctx: CanvasRenderingContext2D, map: WiringMap, ox: number, oy: number, cell: number) {
-  if (!map.pixels.length) return;
-  ctx.beginPath();
-  map.pixels.forEach((pixel, i) => {
-    const x = ox + (pixel.x + 0.5) * cell;
-    const y = oy + (pixel.y + 0.5) * cell;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = "rgba(95,119,137,0.28)";
-  ctx.lineWidth = Math.max(1, cell * 0.08);
-  ctx.stroke();
 }

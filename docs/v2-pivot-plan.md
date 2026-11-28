@@ -63,7 +63,7 @@ Branch: `feat/v2-studio-engine` (backup: `archive/led-converter-v1`).
 
 - No migration of existing saved projects' `mediaType: "led"` (will be ignored).
 - No removal of `.swf`/`.tol` preview support.
-- Hardware wiring map kept for cols/rows resolution; only controller/IC tables removed.
+- Hardware config reduced to cols/rows, colour order, channels and pitch; wiring routing and controller/IC tables removed.
 
 ---
 

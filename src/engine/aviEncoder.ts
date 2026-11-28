@@ -1,7 +1,6 @@
 import { renderFrame } from "./compositor";
 import { preloadMedia } from "./mediaRenderer";
 import { exportFramesToAvi } from "@/lib/aviExporter";
-import type { WiringMap } from "./wiringMapper";
 import type { Project } from "@/types/project";
 import type { ExportOptions } from "./exporters";
 
@@ -23,10 +22,13 @@ function download(blob: Blob, name: string): void {
  * LEDEdit interchange: one BGR24 pixel per LED at the exact matrix size.
  * Rendering uses an offscreen canvas so preview scaling can never leak in.
  */
-export async function exportAviUncompressed(project: Project, _map: WiringMap, opts: ExportOptions): Promise<void> {
+export async function exportAviUncompressed(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
+  if (typeof document !== "undefined" && document.fonts) await document.fonts.ready;
   const { cols, rows } = project.hardware;
   const total = frameCount(project);
   const fps = Math.max(1, Math.round(project.fps));
@@ -38,7 +40,7 @@ export async function exportAviUncompressed(project: Project, _map: WiringMap, o
 
   const frames: ImageData[] = [];
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / fps, undefined, OFFLINE_AUDIO);
+    const frame = renderFrame(project, i / fps, OFFLINE_AUDIO);
     const rgba = new Uint8ClampedArray(cols * rows * 4);
     for (let j = 0, k = 0; j < cols * rows; j++, k += 3) {
       rgba[j * 4] = frame[k];

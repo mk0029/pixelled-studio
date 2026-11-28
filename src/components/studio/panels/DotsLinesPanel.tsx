@@ -60,22 +60,31 @@ export default function DotsLinesPanel({ project, onCommit, onAdd }: Props) {
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
               <div className="mb-1 label">Mode</div>
-              <select className="field" value={layer.dotsMode ?? "dots"} onChange={(e) => patch({ dotsMode: e.target.value as Layer["dotsMode"] })}>
+              <select className="field" value={layer.dotsMode ?? "dots"}
+                onChange={(e) => {
+                  const mode = e.target.value as Layer["dotsMode"];
+                  patch({ dotsMode: mode, dotsGenerator: mode === "gravity-stack" ? "gravity-stack"
+                    : layer.dotsGenerator === "gravity-stack" ? "classic" : layer.dotsGenerator });
+                }}>
                 <option value="dots">Dots</option><option value="lines">Lines</option><option value="dashed">Dashed</option>
+                <option value="gravity-stack">Gravity Stack / Fill</option>
               </select>
             </label>
             <label className="block">
               <div className="mb-1 label">Layout</div>
               <select className="field" value={layer.dotsLayout ?? "grid"} onChange={(e) => patch({ dotsLayout: e.target.value as Layer["dotsLayout"] })}>
-                {(["grid", "checkerboard", "hstrips", "vstrips", "diag", "border", "scatter"] as const).map((v) => <option key={v} value={v}>{v}</option>)}
+                {(["grid", "checkerboard", "hstrips", "vstrips", "diag", "border"] as const).map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </label>
           </div>
 
           <div className="flex flex-wrap gap-1">
-            {(["classic", "particles", "stamp"] as const).map((g) => (
+            {([
+              ["classic", "Classic Layout"], ["particles", "Procedural Particles"],
+              ["stamp", "Custom Dot Stamp"], ["gravity-stack", "Gravity Stack / Fill"],
+            ] as const).map(([g, label]) => (
               <button key={g} className={`chip ${(layer.dotsGenerator ?? "classic") === g ? "chip-active" : ""}`}
-                onClick={() => patch({ dotsGenerator: g })}>{g}</button>
+                onClick={() => patch({ dotsGenerator: g, dotsMode: g === "gravity-stack" ? "gravity-stack" : layer.dotsMode === "gravity-stack" ? "dots" : layer.dotsMode })}>{label}</button>
             ))}
           </div>
 
@@ -114,8 +123,8 @@ export default function DotsLinesPanel({ project, onCommit, onAdd }: Props) {
             <div className="space-y-2">
               <label className="block">
                 <div className="mb-1 label">Distribution</div>
-                <select className="field" value={layer.dotsDistribution ?? "scatter"} onChange={(e) => patch({ dotsDistribution: e.target.value as Layer["dotsDistribution"] })}>
-                  {(["scatter", "starfield", "rain", "cluster", "wave"] as const).map((v) => <option key={v} value={v}>{v}</option>)}
+                <select className="field" value={layer.dotsDistribution ?? "starfield"} onChange={(e) => patch({ dotsDistribution: e.target.value as Layer["dotsDistribution"] })}>
+                  {(["starfield", "rain", "cluster", "wave"] as const).map((v) => <option key={v} value={v}>{v}</option>)}
                 </select>
               </label>
               {slider("Dots", layer.dotsCount ?? 80, 1, 500, 1, (v) => patch({ dotsCount: v }))}
@@ -125,29 +134,91 @@ export default function DotsLinesPanel({ project, onCommit, onAdd }: Props) {
               {slider("Jitter", layer.dotsJitter ?? 0, 0, 100, 1, (v) => patch({ dotsJitter: v }), "%")}
               {slider("Trail", layer.dotsTrail ?? 0, 0, 20, 1, (v) => patch({ dotsTrail: v }))}
             </div>
-          ) : (
+          ) : layer.dotsGenerator === "classic" ? (
             <div className="space-y-2">
               {slider("Count", layer.dotsCount ?? 8, 1, 64, 1, (v) => patch({ dotsCount: v }))}
               {slider("Thickness", layer.dotsThickness ?? 2, 1, 16, 1, (v) => patch({ dotsThickness: v }))}
               {slider("Length", layer.dotsLength ?? 8, 1, 64, 1, (v) => patch({ dotsLength: v }))}
               {slider("Spacing", layer.dotsSpacing ?? 4, 1, 32, 1, (v) => patch({ dotsSpacing: v }))}
               {slider("Speed", layer.dotsSpeed ?? 1, 0, 10, 0.1, (v) => patch({ dotsSpeed: v }), "×")}
-              <label className="flex items-center gap-2 text-zinc-400">
-                <input type="checkbox" checked={layer.dotsBounce ?? false} onChange={(e) => patch({ dotsBounce: e.target.checked })} />
-                Bounce
-              </label>
+            </div>
+          ) : null}
+
+          {layer.dotsGenerator === "gravity-stack" && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <div className="mb-1 label">Spawn edge</div>
+                  <select className="field" value={layer.dotsGravityDirection ?? "top-bottom"}
+                    onChange={(e) => patch({ dotsGravityDirection: e.target.value as Layer["dotsGravityDirection"] })}>
+                    <option value="top-bottom">Top → Bottom</option><option value="bottom-top">Bottom → Top</option>
+                    <option value="left-right">Left → Right</option><option value="right-left">Right → Left</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">Fill pattern</div>
+                  <select className="field" value={layer.dotsGravityFill ?? "all"}
+                    onChange={(e) => patch({ dotsGravityFill: e.target.value as Layer["dotsGravityFill"] })}>
+                    <option value="all">All Lines Together</option><option value="wave">Wave / Staggered</option>
+                    <option value="random">Random Rain Fill</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">Per-dot color</div>
+                  <select className="field" value={layer.dotsGravityColorMode ?? "palette"}
+                    onChange={(e) => patch({ dotsGravityColorMode: e.target.value as Layer["dotsGravityColorMode"] })}>
+                    <option value="single">Current Layer Color / Gradient</option>
+                    <option value="palette">Per-Dot Palette Cycle</option>
+                    <option value="rainbow">Rainbow Stack</option>
+                    <option value="random">Random High-Contrast</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 label">On complete</div>
+                  <select className="field" value={layer.dotsGravityOnComplete ?? "cycle-hold"}
+                    onChange={(e) => patch({ dotsGravityOnComplete: e.target.value as Layer["dotsGravityOnComplete"] })}>
+                    <option value="cycle-hold">Color Cycle & Hold</option><option value="drain">Drain Out (Bottom Drop)</option>
+                    <option value="flash">Flash & Reset</option>
+                  </select>
+                </label>
+              </div>
+              {slider("Drop speed", layer.dotsParticleSpeed ?? 30, 5, 100, 1, (v) => patch({ dotsParticleSpeed: v }), "%")}
+              {slider("Hold frames", layer.dotsGravityHoldFrames ?? 40, 20, 120, 1, (v) => patch({ dotsGravityHoldFrames: v }))}
+              <div>
+                <div className="mb-1 label">Stack palette (live editable)</div>
+                <div className="flex flex-wrap gap-1">
+                  {(layer.dotsPalette ?? []).map((color, i) => (
+                    <input key={i} type="color" aria-label={`Stack color ${i + 1}`} value={color}
+                      onChange={(e) => {
+                        const next = [...(layer.dotsPalette ?? [])];
+                        next[i] = e.target.value;
+                        patch({ dotsPalette: next });
+                      }} className="h-6 w-7 cursor-pointer rounded border border-zinc-700 bg-transparent p-0" />
+                  ))}
+                  {(layer.dotsPalette?.length ?? 0) < 8 &&
+                    <button className="chip" onClick={() => patch({ dotsPalette: [...(layer.dotsPalette ?? []), "#ffffff"] })}>+</button>}
+                </div>
+              </div>
             </div>
           )}
 
-          <label className="block">
-            <div className="mb-1 label">Direction</div>
-            <select className="field" value={(layer.dotsGenerator === "classic" ? layer.dotsDirection : layer.dotsParticleDirection) ?? "down"}
-              onChange={(e) => patch(layer.dotsGenerator === "classic"
-                ? { dotsDirection: e.target.value as Layer["dotsDirection"] }
-                : { dotsParticleDirection: e.target.value as Layer["dotsParticleDirection"] })}>
-              {(layer.dotsGenerator === "classic" ? DIRECTIONS : PARTICLE_DIRECTIONS).map((v) => <option key={v} value={v}>{v}</option>)}
-            </select>
+          <label className="flex items-center gap-2 text-zinc-400">
+            <input type="checkbox" checked={layer.dotsBounce ?? false}
+              onChange={(e) => patch({ dotsBounce: e.target.checked, dotsWrap: !e.target.checked })} />
+            Bounce / Ping-Pong (all modes & directions)
           </label>
+
+          {layer.dotsGenerator !== "gravity-stack" && (
+            <label className="block">
+              <div className="mb-1 label">Direction</div>
+              <select className="field" value={(layer.dotsGenerator === "classic" ? layer.dotsDirection : layer.dotsParticleDirection) ?? "down"}
+                onChange={(e) => patch(layer.dotsGenerator === "classic"
+                  ? { dotsDirection: e.target.value as Layer["dotsDirection"] }
+                  : { dotsParticleDirection: e.target.value as Layer["dotsParticleDirection"] })}>
+                {(layer.dotsGenerator === "classic" ? DIRECTIONS : PARTICLE_DIRECTIONS).map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
               <div className="mb-1 label">Effect</div>
@@ -163,7 +234,7 @@ export default function DotsLinesPanel({ project, onCommit, onAdd }: Props) {
             </label>
           </div>
           <label className="flex items-center gap-2 text-zinc-400">
-            <input type="checkbox" checked={layer.dotsWrap ?? false} onChange={(e) => patch({ dotsWrap: e.target.checked })} />
+            <input type="checkbox" checked={layer.dotsWrap ?? false} onChange={(e) => patch({ dotsWrap: e.target.checked, dotsBounce: e.target.checked ? false : layer.dotsBounce })} />
             Wrap at edges
           </label>
           <label className="flex items-center gap-2 text-zinc-400">

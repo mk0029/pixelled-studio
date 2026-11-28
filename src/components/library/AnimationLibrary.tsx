@@ -20,8 +20,8 @@ interface Props {
 }
 
 const QUERY = `*[_type == "animationAsset"] | order(_createdAt desc) { _id, title, format, category, resolution, sourcePack, "url": file.asset->url, "fileName": file.asset->originalFilename }`;
-const SUPPORTED = new Set([".swf", ".avi", ".tol"]);
-const FORMATS = ["all", "swf", "avi", "tol"];
+const SUPPORTED = new Set([".swf", ".avi", ".tol", ".gif"]);
+const FORMATS = ["all", "swf", "avi", "tol", "gif"];
 
 const formatOf = (a: LibraryAsset) => (a.format ?? "").replace(/^\./, "").toLowerCase();
 
@@ -48,8 +48,8 @@ export default function AnimationLibrary({ compact = false, onLoad }: Props) {
     if (!sanityEnabled()) { setLoading(false); setError("Sanity not configured"); return; }
     setLoading(true);
     try { setAssets(await sanityFetch<LibraryAsset[]>(QUERY)); setError(""); }
-    catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
+  catch (e) { setError(String(e)); }
+  finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -70,7 +70,7 @@ export default function AnimationLibrary({ compact = false, onLoad }: Props) {
 
   const uploadFiles = async (files: File[]) => {
     const supported = files.filter((f) => SUPPORTED.has("." + f.name.split(".").pop()?.toLowerCase()));
-    if (supported.length === 0) { setMessage("No .swf, .avi or .tol files selected."); return; }
+    if (supported.length === 0) { setMessage("No .swf, .avi, .tol or .gif files selected."); return; }
     setBusy(true);
     setTotal(supported.length);
     setDone(0);
@@ -146,19 +146,23 @@ export default function AnimationLibrary({ compact = false, onLoad }: Props) {
           const fmt = formatOf(a);
           return (
             <div key={a._id} className="rounded border border-zinc-800 bg-zinc-900 p-3">
-              <div className="mb-2 grid h-20 place-items-center rounded bg-zinc-950 font-mono text-2xl uppercase text-teal-300">{fmt || "•"}</div>
+              {fmt === "gif" && a.url ? (
+                <img src={a.url} alt={a.title} className="mb-2 h-20 w-full rounded bg-zinc-950 object-contain" loading="lazy" />
+              ) : (
+                <div className="mb-2 grid h-20 place-items-center rounded bg-zinc-950 font-mono text-2xl uppercase text-teal-300">{fmt || "•"}</div>
+              )}
               <div className="truncate font-medium" title={a.title}>{a.title}</div>
               <div className="text-xs text-zinc-500">{a.category} · {fmt} · {a.resolution}</div>
               {a.sourcePack && <div className="truncate text-[10px] text-zinc-600">Pack: {a.sourcePack}</div>}
               {a.fileName && <div className="mt-1 truncate text-[10px] text-zinc-600" title={a.fileName}>{a.fileName}</div>}
               <div className="mt-2 flex flex-wrap gap-2">
-                {a.url && (
-                  <a href={`${a.url}?dl=${encodeURIComponent(a.fileName ?? a.title)}`} download
-                    className="rounded bg-teal-500 px-2 py-1 text-xs text-black">Download for LEDEdit</a>
-                )}
-                {fmt === "avi" && a.url && (
+                {a.url && onLoad && (
                   <button onClick={() => openAsset(a)}
-                    className="rounded bg-violet-500 px-2 py-1 text-xs text-black">Load into Studio</button>
+                    className="rounded bg-teal-500 px-2 py-1 text-xs text-black">Import</button>
+                )}
+                {a.url && !onLoad && (
+                  <a href={a.url} target="_blank" rel="noopener noreferrer"
+                    className="rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-100">Open</a>
                 )}
               </div>
             </div>

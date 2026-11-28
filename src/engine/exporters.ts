@@ -3,7 +3,6 @@ import { preloadMedia } from "./mediaRenderer";
 import { exportAviUncompressed } from "./aviEncoder";
 import { buildFseqBytes } from "./codecs/fseq";
 import type { TolProgram } from "./codecs/tolDecoder";
-import type { WiringMap } from "./wiringMapper";
 import { effectiveDuration } from "@/types/project";
 import type { Project } from "@/types/project";
 
@@ -60,18 +59,18 @@ function canvasBlob(canvas: HTMLCanvasElement, type: string, quality?: number): 
   });
 }
 
-/** Physical stream bytes for one frame, honouring colour order. */
-function physicalBytes(
+/** Frame bytes in raster order, honouring colour order. */
+function rasterBytes(
   frame: Uint8ClampedArray,
-  map: WiringMap,
   cols: number,
+  rows: number,
   colorOrder: string,
   channels: number,
 ): Uint8Array {
-  const out = new Uint8Array(map.pixels.length * channels);
-  for (const px of map.pixels) {
-    const q = (px.y * cols + px.x) * 3;
-    const o = px.index * channels;
+  const out = new Uint8Array(cols * rows * channels);
+  for (let i = 0; i < cols * rows; i++) {
+    const q = i * 3;
+    const o = i * channels;
     const rgb: Record<string, number> = { R: frame[q], G: frame[q + 1], B: frame[q + 2] };
     for (let c = 0; c < 3; c++) out[o + c] = rgb[colorOrder[c]] ?? 0;
     if (channels === 4) out[o + 3] = 0;
@@ -79,17 +78,13 @@ function physicalBytes(
   return out;
 }
 
-function wiringCsv(map: WiringMap): string {
-  const lines = ["index,port,localIndex,x,y"];
-  for (const p of map.pixels) lines.push(`${p.index},${p.port},${p.localIndex},${p.x},${p.y}`);
-  return lines.join("\n");
-}
-
-/** Renders every frame into a ZIP of PNGs plus project, manifest and wiring CSV. */
-export async function exportFrameZip(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+/** Renders every frame into a ZIP of PNGs plus project.json and manifest.json. */
+export async function exportFrameZip(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
   const { cols, rows } = project.hardware;
@@ -103,7 +98,7 @@ export async function exportFrameZip(project: Project, map: WiringMap, opts: Exp
   const folder = zip.folder("frames")!;
 
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / project.fps, map, OFFLINE_AUDIO);
+    const frame = renderFrame(project, i / project.fps, OFFLINE_AUDIO);
     sctx.putImageData(frameToImageData(frame, cols, rows), 0, 0);
     bctx.clearRect(0, 0, big.width, big.height);
     bctx.drawImage(small, 0, 0, big.width, big.height);
@@ -124,14 +119,13 @@ export async function exportFrameZip(project: Project, map: WiringMap, opts: Exp
         duration: effectiveDuration(project),
         frameCount: total,
         colorOrder: project.hardware.colorOrder,
-        pixelCount: map.totalPixels,
+        pixelCount: cols * rows,
         scale,
       },
       null,
       2,
     ),
   );
-  zip.file("wiring.csv", wiringCsv(map));
 
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" }, (meta) =>
     opts.onProgress?.(total, total, `zip ${Math.round(meta.percent)}%`),
@@ -140,10 +134,12 @@ export async function exportFrameZip(project: Project, map: WiringMap, opts: Exp
 }
 
 /** Motion-JPEG AVI: small, standard, plays in any media player. */
-export async function exportAvi(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+export async function exportAvi(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
   const { cols, rows } = project.hardware;
   const total = frameCount(project);
   const scale = Math.max(1, Math.min(32, Math.round(opts.scale)));
@@ -159,7 +155,7 @@ export async function exportAvi(project: Project, map: WiringMap, opts: ExportOp
   const jpegs: Uint8Array[] = [];
   let maxJpeg = 0;
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / fps, map, OFFLINE_AUDIO);
+    const frame = renderFrame(project, i / fps, OFFLINE_AUDIO);
     sctx.putImageData(frameToImageData(frame, cols, rows), 0, 0);
     bctx.clearRect(0, 0, W, H);
     bctx.drawImage(small, 0, 0, W, H);
@@ -248,14 +244,16 @@ export async function exportAvi(project: Project, map: WiringMap, opts: ExportOp
 
 
 /** Raw little-endian frame dump for custom drivers and WLED-style pipelines. */
-export async function exportBin(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+export async function exportBin(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
   const { cols, rows, colorOrder, channels } = project.hardware;
   const total = frameCount(project);
   const headerSize = 24;
-  const frameBytes = map.pixels.length * channels;
+  const frameBytes = cols * rows * channels;
   const file = new Uint8Array(headerSize + total * frameBytes);
   const view = new DataView(file.buffer);
   file.set([0x54, 0x4f, 0x48, 0x42, 0x49, 0x4e, 0x31, 0x00], 0); // TOHBIN1\0
@@ -270,8 +268,8 @@ export async function exportBin(project: Project, map: WiringMap, opts: ExportOp
 
   let pos = headerSize;
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / project.fps, map, OFFLINE_AUDIO);
-    file.set(physicalBytes(frame, map, cols, colorOrder, channels), pos);
+    const frame = renderFrame(project, i / project.fps, OFFLINE_AUDIO);
+    file.set(rasterBytes(frame, cols, rows, colorOrder, channels), pos);
     pos += frameBytes;
     opts.onProgress?.(i + 1, total, "render");
     if (i % 4 === 3) await tick();
@@ -279,31 +277,35 @@ export async function exportBin(project: Project, map: WiringMap, opts: ExportOp
   download(new Blob([file], { type: "application/octet-stream" }), `${safeName(project.name)}.bin`);
 }
 
-/** FSEQ v2 uncompressed sequence: one channel byte per LED channel, in physical wiring order. */
-export async function exportFseq(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+/** FSEQ v2 uncompressed sequence: one channel byte per LED channel, in matrix raster order. */
+export async function exportFseq(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
-  const { cols, colorOrder, channels } = project.hardware;
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
+  const { cols, rows, colorOrder, channels } = project.hardware;
   const total = frameCount(project);
   const fps = Math.max(1, Math.round(project.fps));
   const frames: Uint8Array[] = [];
 
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / fps, map, OFFLINE_AUDIO);
-    frames.push(physicalBytes(frame, map, cols, colorOrder, channels));
+    const frame = renderFrame(project, i / fps, OFFLINE_AUDIO);
+    frames.push(rasterBytes(frame, cols, rows, colorOrder, channels));
     opts.onProgress?.(i + 1, total, "fseq");
     if (i % 4 === 3) await tick();
   }
-  const bytes = buildFseqBytes(frames, Math.max(1, map.pixels.length * channels), fps);
+  const bytes = buildFseqBytes(frames, Math.max(1, cols * rows * channels), fps);
   download(new Blob([bytes], { type: "application/octet-stream" }), `${safeName(project.name)}.fseq`);
 }
 
 /** Animated GIF at one output pixel per LED (times the chosen scale). */
-export async function exportGif(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+export async function exportGif(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
   const { GIFEncoder, quantize, applyPalette } = await import("gifenc");
   const { cols, rows } = project.hardware;
   const total = frameCount(project);
@@ -319,7 +321,7 @@ export async function exportGif(project: Project, map: WiringMap, opts: ExportOp
   const gif = GIFEncoder();
 
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / fps, map, OFFLINE_AUDIO);
+    const frame = renderFrame(project, i / fps, OFFLINE_AUDIO);
     sctx.putImageData(frameToImageData(frame, cols, rows), 0, 0);
     bctx.clearRect(0, 0, W, H);
     bctx.drawImage(small, 0, 0, W, H);
@@ -394,10 +396,12 @@ async function deflateZlib(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
  * replaced on depth 1 each ShowFrame. Stage size = cols x rows LEDs at
  * `scale` pixels per LED, frame rate and frame count from the project.
  */
-export async function exportSwf(project: Project, map: WiringMap, opts: ExportOptions): Promise<void> {
+export async function exportSwf(project: Project, opts: ExportOptions): Promise<void> {
   await preloadMedia(project);
   const { preloadProjectFonts } = await import("./fontFamilies");
   await preloadProjectFonts(project);
+  const { preloadEmojiGifs } = await import("@/lib/gifFrameCache");
+  await preloadEmojiGifs(project);
   const { cols, rows } = project.hardware;
   const total = Math.min(65535, frameCount(project));
   const scale = Math.max(1, Math.min(10, Math.round(opts.scale || 8)));
@@ -412,7 +416,7 @@ export async function exportSwf(project: Project, map: WiringMap, opts: ExportOp
   const tags: Uint8Array[] = [swfTag(9, new Uint8Array([0, 0, 0]))];
 
   for (let i = 0; i < total; i++) {
-    const frame = renderFrame(project, i / fps, map, OFFLINE_AUDIO);
+    const frame = renderFrame(project, i / fps, OFFLINE_AUDIO);
     sctx.putImageData(frameToImageData(frame, cols, rows), 0, 0);
     bctx.clearRect(0, 0, W, H);
     bctx.drawImage(small, 0, 0, W, H);
@@ -462,14 +466,14 @@ export async function exportSwf(project: Project, map: WiringMap, opts: ExportOp
 }
 
 
-export function runExport(project: Project, map: WiringMap, format: ExportFormat, opts: ExportOptions): Promise<void> {
+export function runExport(project: Project, format: ExportFormat, opts: ExportOptions): Promise<void> {
   switch (format) {
-    case "zip": return exportFrameZip(project, map, opts);
-    case "avi": return exportAvi(project, map, opts);
-    case "avi-raw": return exportAviUncompressed(project, map, opts);
-    case "fseq": return exportFseq(project, map, opts);
-    case "gif": return exportGif(project, map, opts);
-    case "swf": return exportSwf(project, map, opts);
-    case "bin": return exportBin(project, map, opts);
+    case "zip": return exportFrameZip(project, opts);
+    case "avi": return exportAvi(project, opts);
+    case "avi-raw": return exportAviUncompressed(project, opts);
+    case "fseq": return exportFseq(project, opts);
+    case "gif": return exportGif(project, opts);
+    case "swf": return exportSwf(project, opts);
+    case "bin": return exportBin(project, opts);
   }
 }

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { clampLayerTiming, type Layer, type Project } from "@/types/project";
-import { PORT_COLORS } from "@/engine/wiringMapper";
 import { Icon } from "./icons";
 
 interface Props {
@@ -34,6 +33,7 @@ interface Props {
 const HEADER_W = 240;
 const ROW_H = 36;
 const BASE_PX_PER_SEC = 72;
+const TRACK_COLORS = ["#38e1d4", "#9a7cff", "#ff7ab6", "#ffc857", "#6ee7a8", "#60a5fa", "#fb923c", "#f472b6"];
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const stamp = (t: number) =>
   `${String(Math.floor(t / 60)).padStart(2, "0")}:${(t % 60).toFixed(1).padStart(4, "0")}`;
@@ -332,7 +332,7 @@ export default function Timeline(p: Props) {
                     className={`sticky left-0 z-30 flex w-60 shrink-0 items-center gap-1 border-b border-r border-zinc-800 px-2 ${selected ? "bg-teal-500/[.07]" : "bg-zinc-900"}`}>
                     <span
                       className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ background: PORT_COLORS[index % 8] }}
+                      style={{ background: TRACK_COLORS[index % 8] }}
                     />
                     <button
                       onClick={() => p.onSelect(layer.id)}
@@ -414,7 +414,7 @@ export default function Timeline(p: Props) {
             })}
             {!p.project.layers.length && (
               <div className="ml-60 flex h-20 items-center justify-center text-[11px] text-zinc-600">
-                No layers — add one from the dock or the + Layer button.
+                No layers — add one from the dock or the Add Layer button.
               </div>
             )}
 
